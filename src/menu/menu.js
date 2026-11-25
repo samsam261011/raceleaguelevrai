@@ -364,6 +364,7 @@ import { mountKeybindEditor } from "../shared/keybindEditor";
   shade.addEventListener("click", () => closeDrawer());
   drawer.querySelectorAll(".drawer-item").forEach((b) => b.addEventListener("click", () => {
     closeDrawer(true);
+    if (b.dataset.href) { location.href = b.dataset.href; return; }
     if (b.dataset.open) open(b.dataset.open);
     if (b.dataset.page) { $(b.dataset.page).hidden = false; $(b.dataset.page).querySelector(".page-close").focus(); }
   }));

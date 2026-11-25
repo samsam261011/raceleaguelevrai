@@ -33,6 +33,21 @@ Le chrono de chaque essai ne démarre qu'à la première touche de conduite : pa
 En développement (`npm run dev`), `race.html?pilote` fait conduire un pilote automatique tant qu'on tient le gaz,
 pratique pour tester le fantôme et l'écran de fin.
 
+## Éditeur de circuits
+
+`editor.html` (bouton « Créer un circuit » dans Maps, ou « Éditeur de circuits » dans le menu ☰).
+
+- On pose des pièces sur une grille : départ, ligne droite, virage, grand virage (2×2), pente (monte d'un étage),
+  tremplin, vide (trou à sauter), checkpoint, arrivée. Chaque pièce se raccorde à sa voisine par ses bords.
+- Clic : poser · clic droit ou Gomme : effacer · R : tourner · 1 à 9 : choisir la pièce · Page haut/bas : étage ·
+  glisser : déplacer la vue · molette : zoom · Q/E : tourner la vue · Ctrl+Z : annuler.
+- Une pente prise dans l'autre sens descend. Après un vide, on peut atterrir plus bas.
+- Le circuit est suivi du départ à l'arrivée ; s'il est coupé, une flèche rouge montre où.
+- **Tester** lance la course sur le circuit. Ton meilleur temps devient le temps auteur, qui fixe les médailles
+  (or +5 %, argent +15 %, bronze +35 %).
+- **Code** donne un texte `RL1-…` qui contient tout le circuit : à copier pour le garder ou l'envoyer.
+  `race.html?code=RL1-…` joue directement un circuit.
+
 ## Autres commandes utiles
 
 ```bash
@@ -47,8 +62,11 @@ npm run preview    # teste la version publiée en local
 ```
 index.html            menu principal
 race.html             écran de course
+editor.html           éditeur de circuits
 src/
   menu/               menu (profil, classé, salles, maps, battle cards)
+  editor/             éditeur : pièces, assemblage en circuit, code texte, interface
+  shared/             touches modifiables (menu et course)
   race/
     math/             maths déterministes (mêmes résultats sur toutes les machines)
     physics/          voiture : réglages, entrées, simulation pas à pas

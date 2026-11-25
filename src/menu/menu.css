@@ -468,3 +468,7 @@ h1 .ten { color: var(--accent); }
 }
 
 body { margin: 0; }
+
+/* Bouton « Créer un circuit » en haut de la liste des maps */
+.create-map { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 14px 10px; text-decoration: none; }
+.create-map svg { width: 18px; height: 18px; }

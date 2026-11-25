@@ -3,6 +3,12 @@ import type { Track } from "../track/types";
 
 /** Décor de jour : ciel bleu, soleil, nuages, sol vert et collines low-poly. */
 export function buildEnvironment(scene: THREE.Scene, track: Track): void {
+  buildSky(scene);
+  decorate(scene, track);
+}
+
+/** Ciel bleu, brouillard clair, soleil. Utilisé aussi par l'éditeur. */
+export function buildSky(scene: THREE.Scene): void {
   scene.fog = new THREE.Fog(0xcfe6f5, 260, 900);
 
   const sky = new THREE.Mesh(
@@ -29,7 +35,9 @@ export function buildEnvironment(scene: THREE.Scene, track: Track): void {
   const sun = new THREE.DirectionalLight(0xfff4e0, 1.9);
   sun.position.set(-180, 260, -120);
   scene.add(sun);
+}
 
+function decorate(scene: THREE.Scene, track: Track): void {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < track.count; i++) {
     minX = Math.min(minX, track.px[i]!);

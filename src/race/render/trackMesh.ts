@@ -18,7 +18,7 @@ const COL_WALL = new THREE.Color(0xeef1f5);
 const COL_WALL_TOP = new THREE.Color(0x2f6fd6);
 
 /** Construit la piste en 3D : dalle, murets latéraux, bordures rouges et blanches, portiques de checkpoint, départ et arrivée. */
-export function buildTrackMesh(track: Track): THREE.Group {
+export function buildTrackMesh(track: Track, opts: { gates?: boolean } = {}): THREE.Group {
   const group = new THREE.Group();
   const pos: number[] = [];
   const col: number[] = [];
@@ -74,6 +74,7 @@ export function buildTrackMesh(track: Track): THREE.Group {
   const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
   group.add(mesh);
 
+  if (opts.gates === false) return group;
   // Portiques
   const indexAt = (d: number) => {
     let i = 0;
@@ -104,7 +105,7 @@ function checker(): THREE.Texture {
   return checkerTex;
 }
 
-function gate(track: Track, i: number, kind: "start" | "finish" | "checkpoint"): THREE.Group {
+export function gate(track: Track, i: number, kind: "start" | "finish" | "checkpoint"): THREE.Group {
   const g = new THREE.Group();
   const w = track.width[i]! / 2 + WALL_T + 0.6;
   const height = kind === "checkpoint" ? 6 : 7.5;

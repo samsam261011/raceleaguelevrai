@@ -1,6 +1,6 @@
 import type { MapDefinition, Track } from "./types";
 
-const SUBDIV = 32;
+export const SUBDIV = 32;
 const DEFAULT_WIDTH = 22;
 
 /** Catmull-Rom uniforme sur une composante. */

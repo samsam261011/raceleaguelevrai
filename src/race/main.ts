@@ -10,6 +10,9 @@ import { Attempt } from "./sim/attempt";
 import { autopilot } from "./sim/autopilot";
 import { buildTrack } from "./track/build";
 import { DEFAULT_MAP, MAPS } from "./track/maps";
+import type { MapDefinition } from "./track/types";
+import { decodeMap } from "../editor/code";
+import { customMapId, walk } from "../editor/layout";
 import { Hud } from "./ui/hud";
 
 /**
@@ -22,7 +25,20 @@ type Phase = "ready" | "running" | "between" | "results";
 
 const $ = (id: string) => document.getElementById(id)!;
 const params = new URLSearchParams(location.search);
-const mapDef = MAPS[params.get("map") ?? DEFAULT_MAP] ?? MAPS[DEFAULT_MAP]!;
+const fromEditor = params.has("editeur");
+const mapDef = customMap(params.get("code")) ?? MAPS[params.get("map") ?? DEFAULT_MAP] ?? MAPS[DEFAULT_MAP]!;
+
+/** Map créée dans l'éditeur, passée par son code texte. */
+function customMap(code: string | null): MapDefinition | null {
+  if (!code) return null;
+  try {
+    const m = decodeMap(code);
+    const r = walk(m, customMapId(m));
+    return r.ok ? r.def : null;
+  } catch {
+    return null;
+  }
+}
 const track = buildTrack(mapDef);
 document.title = `${mapDef.name} · RaceLeague`;
 $("mapName").textContent = mapDef.name;
@@ -92,7 +108,7 @@ $("settingsBtn").addEventListener("click", openSettings);
 $("closeSettings").addEventListener("click", closeSettings);
 
 function goMenu(): void {
-  location.href = "./";
+  location.href = fromEditor ? "./editor.html" : "./";
 }
 
 function refreshBest(): void {
