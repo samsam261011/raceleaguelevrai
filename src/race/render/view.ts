@@ -3,16 +3,45 @@ import type { CarState } from "../physics/car";
 import { formatTime } from "../session/session";
 import { VMAX } from "../physics/constants";
 import type { World } from "../world/world";
-import { buildWorldMesh } from "./blockMesh";
+import { animateTrack, buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
-import { buildEnvironment, enableSunShadows, followSunShadow, shadowQuality, type Lighting } from "./environment";
+import { buildEnvironment, buildSky, enableSunShadows, followSunShadow, shadowQuality, type Lighting } from "./environment";
 import { SpeedLines } from "./speedLines";
+
+/** Réglages de la caméra de course (en mètres et en degrés). */
+const CAM = {
+  back: 7.2,
+  backFast: 1.0,
+  height: 2.7,
+  heightFast: 0.35,
+  /** Point visé : loin devant, juste au-dessus de la route. */
+  ahead: 30,
+  aim: 1.3,
+  fov: 70,
+  fovFast: 16,
+};
+
+/** Carte d'environnement (reflets) faite à partir du ciel seul. */
+function skyEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
+  const sky = new THREE.Scene();
+  buildSky(sky);
+  sky.fog = null;
+  // Un sol ocre sous l'horizon, pour des reflets chauds sur le bas de caisse
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(400, 16), new THREE.MeshBasicMaterial({ color: 0xb98458 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -5;
+  sky.add(floor);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const tex = pmrem.fromScene(sky, 0.02).texture;
+  pmrem.dispose();
+  return tex;
+}
 
 /** La scène 3D : piste, voiture, fantôme et caméra de poursuite. Uniquement de l'affichage. */
 export class RaceView {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(62, 1, 0.1, 4000);
+  readonly camera = new THREE.PerspectiveCamera(CAM.fov, 1, 0.3, 4000);
   private readonly car: CarMesh;
   private readonly ghost: CarMesh;
   private readonly ghostLabel: THREE.Sprite;
@@ -24,6 +53,7 @@ export class RaceView {
   private readonly speedLines: SpeedLines | null;
   private wheelSpin = 0;
   private ghostSpin = 0;
+  private bodyPitch = 0;
   private readonly lighting: Lighting;
   private readonly shadowReach: number;
 
@@ -41,21 +71,17 @@ export class RaceView {
     this.lighting = buildEnvironment(this.scene, world);
     enableSunShadows(this.lighting.sun, q.mapSize, q.radius);
     this.shadowReach = q.radius;
-    const track = buildWorldMesh(world);
-    track.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true;
-    });
-    this.scene.add(track);
+    // Circuit fusionné : une géométrie par matériau pour toute la piste
+    this.scene.add(buildWorldMesh(world, true));
+    // Reflets de la carrosserie : une petite carte d'environnement tirée du ciel (calculée une fois)
+    this.scene.environment = skyEnvironment(this.renderer);
+    this.scene.environmentIntensity = 0.9;
     this.speedLines = fx ? new SpeedLines(fx) : null;
-    this.car = buildCarMesh(0xffb23e);
-    // La voiture projette son ombre mais n'en reçoit pas : pas de rayures d'ombre sur ses petites faces
-    this.car.root.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
-    });
+    this.car = buildCarMesh();
     this.ghost = buildGhostMesh();
     this.ghostLabel = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, depthTest: false }));
     this.ghostLabel.scale.set(4.6, 1.15, 1);
-    this.ghostLabel.position.set(0, 4.1, 0);
+    this.ghostLabel.position.set(0, 2.9, 0);
     this.ghost.root.add(this.ghostLabel);
     this.ghost.root.visible = false;
     this.scene.add(this.car.root, this.ghost.root);
@@ -80,7 +106,19 @@ export class RaceView {
   render(prev: CarState, cur: CarState, alpha: number, ghost: { prev: CarState; cur: CarState; time: number } | null, dt: number): void {
     placeCar(this.car, prev, cur, alpha, dt);
     const speed = Math.hypot(cur.vx, cur.vz);
-    this.wheelSpin += speed * dt * 1.8;
+    // Rotation des roues : vitesse / rayon
+    this.wheelSpin += (speed / 0.42) * dt;
+    // Caisse vivante : elle se cabre un peu en accélérant, plonge au freinage (jamais de roulis)
+    const prevSpeed = Math.hypot(prev.vx, prev.vz);
+    const accel = (speed - prevSpeed) * 120;
+    const targetPitch = cur.grounded ? Math.max(-0.035, Math.min(0.025, -accel * 0.0009)) : 0;
+    this.bodyPitch += (targetPitch - this.bodyPitch) * (1 - Math.exp(-dt * 8));
+    this.car.body.rotation.x = this.bodyPitch;
+    if (this.car.lights) this.car.lights.color.setRGB(accel < -20 ? 2.4 : 0.9, accel < -20 ? 0.25 : 0.08, accel < -20 ? 0.2 : 0.06);
+    if (this.car.flames) {
+      this.car.flames.visible = cur.boosting;
+      if (cur.boosting) this.car.flames.scale.set(1, 1, 0.8 + Math.random() * 0.5);
+    }
     for (const w of this.car.wheels) w.rotation.x = this.wheelSpin;
 
     if (ghost) {
@@ -98,8 +136,9 @@ export class RaceView {
       this.ghost.root.visible = false;
     }
 
-    // Caméra de poursuite fixée derrière la voiture : la voiture reste au centre de l'écran,
-    // seule la rotation de la caméra suit avec un tout petit retard (sensation de virage).
+    // Caméra de course : basse, assez loin, presque horizontale, qui regarde loin devant.
+    // La voiture occupe environ un sixième de la largeur de l'écran, dans le tiers bas ;
+    // la piste remplit la moitié basse et on voit venir les virages.
     const p = this.car.root.position;
     const yaw = this.car.root.rotation.y;
     if (!this.camReady) {
@@ -110,26 +149,27 @@ export class RaceView {
     let dy = yaw - this.camYaw;
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
-    this.camYaw += dy * (1 - Math.exp(-dt * 12));
-    this.camY += (p.y - this.camY) * (1 - Math.exp(-dt * 8));
+    this.camYaw += dy * (1 - Math.exp(-dt * 9));
+    this.camY += (p.y - this.camY) * (1 - Math.exp(-dt * (cur.grounded ? 9 : 4)));
     const k = Math.min(1.3, speed / VMAX);
     const fx = Math.sin(this.camYaw);
     const fz = Math.cos(this.camYaw);
-    const back = 7.6 + k * 1.2;
-    const height = 4.1 - k * 0.6;
+    const back = CAM.back + k * CAM.backFast;
+    const height = CAM.height - k * CAM.heightFast;
     // Petite vibration à pleine vitesse
     this.shakeT += dt;
-    const shake = Math.max(0, k - 0.75) * 0.09;
+    const shake = Math.max(0, k - 0.8) * 0.06;
     const sx = Math.sin(this.shakeT * 41) * shake;
     const sy = Math.sin(this.shakeT * 53 + 1) * shake;
     this.camera.position.set(p.x - fx * back + fz * sx, this.camY + height + sy, p.z - fz * back - fx * sx);
-    this.camera.lookAt(p.x + fx * 8, this.camY + 0.9, p.z + fz * 8);
-    // L'angle de vue s'élargit avec la vitesse
-    const fov = 64 + k * 20 + (cur.boosting ? 4 : 0);
+    this.camera.lookAt(p.x + fx * CAM.ahead, this.camY + CAM.aim, p.z + fz * CAM.ahead);
+    // L'angle de vue s'élargit avec la vitesse, et un peu plus en boost
+    const fov = CAM.fov + k * CAM.fovFast + (cur.boosting ? 5 : 0);
     if (Math.abs(this.camera.fov - fov) > 0.05) {
       this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-dt * 5));
       this.camera.updateProjectionMatrix();
     }
+    animateTrack(dt);
     // La zone d'ombre est centrée un peu devant la voiture : c'est là que regarde la caméra
     const ahead = this.shadowReach * 0.45;
     followSunShadow(this.lighting.sun, p.x + fx * ahead, this.camY, p.z + fz * ahead);
