@@ -66,7 +66,7 @@ window.addEventListener("touchstart", () => document.body.classList.add("touch")
 if (window.matchMedia("(pointer: coarse)").matches) document.body.classList.add("touch");
 
 function goMenu(): void {
-  location.href = "./index.html";
+  location.href = "./";
 }
 
 function refreshBest(): void {
