@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import type { Track } from "../track/types";
 
-/** Ciel du coucher de soleil, lumières, brouillard, rochers flottants et mer de nuages. */
+/** Décor de jour : ciel bleu, soleil, nuages, sol vert et collines low-poly. */
 export function buildEnvironment(scene: THREE.Scene, track: Track): void {
-  scene.fog = new THREE.Fog(0x7a4560, 120, 520);
+  scene.fog = new THREE.Fog(0xcfe6f5, 260, 900);
 
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(1500, 32, 16),
@@ -12,26 +12,24 @@ export function buildEnvironment(scene: THREE.Scene, track: Track): void {
       depthWrite: false,
       fog: false,
       uniforms: {
-        top: { value: new THREE.Color(0x1c1438) },
-        mid: { value: new THREE.Color(0x8a3d6a) },
-        low: { value: new THREE.Color(0xf08a3c) },
+        top: { value: new THREE.Color(0x3d8fe0) },
+        horizon: { value: new THREE.Color(0xd8ecf8) },
       },
-      vertexShader: "varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
+      vertexShader:
+        "varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
       fragmentShader:
-        "uniform vec3 top; uniform vec3 mid; uniform vec3 low; varying vec3 vP; void main(){ float h=vP.y; vec3 c = h>0.05 ? mix(mid, top, smoothstep(0.05,0.55,h)) : mix(low, mid, smoothstep(-0.2,0.05,h)); gl_FragColor=vec4(c,1.0); }",
+        "uniform vec3 top; uniform vec3 horizon; varying vec3 vP; void main(){ float h=clamp(vP.y,0.0,1.0); gl_FragColor=vec4(mix(horizon, top, pow(smoothstep(0.0,0.6,h),0.8)),1.0); }",
     }),
   );
   sky.renderOrder = -1;
   scene.add(sky);
-  // Le ciel suit la caméra
   sky.onBeforeRender = (_r, _s, cam) => sky.position.copy(cam.position);
 
-  scene.add(new THREE.HemisphereLight(0xffd6b0, 0x3a2050, 0.9));
-  const sun = new THREE.DirectionalLight(0xffb070, 1.6);
-  sun.position.set(-200, 160, -120);
+  scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x6f8f4a, 1.15));
+  const sun = new THREE.DirectionalLight(0xfff4e0, 1.9);
+  sun.position.set(-180, 260, -120);
   scene.add(sun);
 
-  // Centre et taille de la map
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < track.count; i++) {
     minX = Math.min(minX, track.px[i]!);
@@ -42,8 +40,9 @@ export function buildEnvironment(scene: THREE.Scene, track: Track): void {
   const cx = (minX + maxX) / 2;
   const cz = (minZ + maxZ) / 2;
   const radius = Math.max(maxX - minX, maxZ - minZ) / 2 + 80;
+  // Sol sous la ligne de chute : on voit le vide sous les sauts sans pouvoir s'y poser.
+  const groundY = track.minY - 34;
 
-  // Générateur pseudo-aléatoire fixe : le décor est le même à chaque partie.
   let seed = 1234567;
   const rnd = () => {
     seed = (seed * 16807) % 2147483647;
@@ -58,43 +57,83 @@ export function buildEnvironment(scene: THREE.Scene, track: Track): void {
     return false;
   };
 
-  const rockSide = new THREE.MeshLambertMaterial({ color: 0x9a5a48, flatShading: true });
-  const rockTop = new THREE.MeshLambertMaterial({ color: 0xd98a5a, flatShading: true });
-  const grass = new THREE.MeshLambertMaterial({ color: 0x7f9a4a, flatShading: true });
-  for (let k = 0; k < 70; k++) {
+  // Sol : grand disque vert légèrement vallonné (sommets déplacés au hasard)
+  const groundGeo = new THREE.CircleGeometry(2200, 48, 0, Math.PI * 2);
+  groundGeo.rotateX(-Math.PI / 2);
+  const ground = new THREE.Mesh(
+    groundGeo,
+    new THREE.MeshLambertMaterial({ color: 0x7cbf4e, flatShading: true }),
+  );
+  ground.position.set(cx, groundY, cz);
+  scene.add(ground);
+
+  // Collines low-poly autour du circuit
+  const hillMats = [0x6cb043, 0x86c95a, 0x5d9e3a].map(
+    (c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true }),
+  );
+  for (let k = 0; k < 46; k++) {
     const a = rnd() * Math.PI * 2;
-    const d = radius * (0.2 + rnd() * 1.3);
+    const d = radius * (0.9 + rnd() * 1.8);
     const x = cx + Math.cos(a) * d;
     const z = cz + Math.sin(a) * d;
-    const r = 4 + rnd() * 16;
-    if (nearTrack(x, z, r + 18)) continue;
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.ConeGeometry(r, r * 2.4, 6), rockSide);
-    body.rotation.x = Math.PI;
-    body.position.y = -r * 1.2;
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.95, r * 0.4, 6), rnd() > 0.5 ? rockTop : grass);
-    g.add(body, top);
-    g.position.set(x, -30 + rnd() * 50, z);
-    g.rotation.y = rnd() * 6;
-    scene.add(g);
+    const r = 40 + rnd() * 90;
+    if (nearTrack(x, z, r * 0.6 + 30)) continue;
+    const geo = new THREE.SphereGeometry(r, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+    const h = new THREE.Mesh(geo, hillMats[k % 3]!);
+    h.scale.y = 0.35 + rnd() * 0.5;
+    h.position.set(x, groundY - 2, z);
+    h.rotation.y = rnd() * 6;
+    scene.add(h);
   }
 
-  // Mer de nuages sous la piste
-  const cloudMat = new THREE.MeshLambertMaterial({ color: 0xf6c6c0, flatShading: true, transparent: true, opacity: 0.75 });
+  // Arbres en cônes près du sol
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8a5a3a, flatShading: true });
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x3f8a3a, flatShading: true });
+  const leafGeo = new THREE.ConeGeometry(4, 10, 6);
+  const trunkGeo = new THREE.CylinderGeometry(0.7, 0.9, 3, 5);
+  for (let k = 0; k < 120; k++) {
+    const a = rnd() * Math.PI * 2;
+    const d = radius * (0.1 + rnd() * 1.4);
+    const x = cx + Math.cos(a) * d;
+    const z = cz + Math.sin(a) * d;
+    if (nearTrack(x, z, 20)) continue;
+    const s = 0.8 + rnd() * 0.9;
+    const t = new THREE.Group();
+    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+    trunk.position.y = 1.5;
+    const leaves = new THREE.Mesh(leafGeo, leafMat);
+    leaves.position.y = 7.5;
+    t.add(trunk, leaves);
+    t.scale.setScalar(s);
+    t.position.set(x, groundY, z);
+    scene.add(t);
+  }
+
+  // Nuages blancs en hauteur
+  const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, emissive: 0x9aa8b4 });
   const cloudGeo = new THREE.IcosahedronGeometry(1, 0);
-  const clouds = new THREE.InstancedMesh(cloudGeo, cloudMat, 140);
+  const puffs = 5;
+  const count = 34;
+  const clouds = new THREE.InstancedMesh(cloudGeo, cloudMat, count * puffs);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
-  for (let k = 0; k < 140; k++) {
+  let n = 0;
+  for (let k = 0; k < count; k++) {
     const a = rnd() * Math.PI * 2;
-    const d = rnd() * radius * 2.2;
-    const s = 18 + rnd() * 40;
-    m.compose(
-      new THREE.Vector3(cx + Math.cos(a) * d, track.minY - 95 - rnd() * 30, cz + Math.sin(a) * d),
-      q.setFromEuler(new THREE.Euler(0, rnd() * 6, 0)),
-      new THREE.Vector3(s, s * 0.35, s),
-    );
-    clouds.setMatrixAt(k, m);
+    const d = radius * (0.3 + rnd() * 2.2);
+    const bx = cx + Math.cos(a) * d;
+    const bz = cz + Math.sin(a) * d;
+    const by = track.minY + 90 + rnd() * 90;
+    const base = 10 + rnd() * 14;
+    for (let p = 0; p < puffs; p++) {
+      const s = base * (0.6 + rnd() * 0.6);
+      m.compose(
+        new THREE.Vector3(bx + (p - 2) * base * 0.8, by + rnd() * base * 0.4, bz + (rnd() - 0.5) * base),
+        q.setFromEuler(new THREE.Euler(0, rnd() * 6, 0)),
+        new THREE.Vector3(s, s * 0.6, s),
+      );
+      clouds.setMatrixAt(n++, m);
+    }
   }
   scene.add(clouds);
 }

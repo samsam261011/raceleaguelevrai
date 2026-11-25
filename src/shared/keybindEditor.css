@@ -1,0 +1,15 @@
+.kb-editor { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.kb-row { display: grid; grid-template-columns: 1fr 64px 64px; gap: 6px; align-items: center; }
+.kb-name { font-size: 14px; }
+.kb-key {
+  height: 36px; border-radius: 8px; cursor: pointer;
+  font-family: "Chakra Petch", "Arial Narrow", system-ui, sans-serif; font-weight: 700; font-size: 14px;
+  background: rgba(255, 255, 255, 0.08); color: #fff8f0; border: 1px solid rgba(255, 220, 190, 0.18);
+}
+.kb-key:hover { border-color: #ffb23e; }
+.kb-key:focus-visible { outline: 3px solid #ffb23e; outline-offset: 1px; }
+.kb-key.listening { background: #ffb23e; color: #2a1500; border-color: transparent; }
+.kb-reset {
+  align-self: flex-end; margin-top: 4px; background: none; border: 0; cursor: pointer;
+  color: #d9c9c0; font-size: 12px; text-decoration: underline; text-underline-offset: 3px;
+}

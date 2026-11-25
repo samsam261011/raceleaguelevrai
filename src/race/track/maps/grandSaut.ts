@@ -20,11 +20,11 @@ export const GRAND_SAUT: MapDefinition = {
     { x: 135, y: 3, z: 268 },
     { x: 100, y: 3, z: 288 },
     { x: 65, y: 3, z: 300 },
-    { x: 44, y: 4, z: 304, width: 12 },
+    { x: 44, y: 4, z: 304, width: 18 },
     // Tremplin : le point suivant (invisible, au-dessus du vide) donne l'angle de décollage.
-    { x: 28, y: 7.5, z: 305, width: 12, gap: true },
-    { x: 14, y: 10, z: 305, width: 12, gap: true },
-    { x: 2, y: 6, z: 305, width: 18 },
+    { x: 28, y: 7.5, z: 305, width: 18, gap: true },
+    { x: 14, y: 10, z: 305, width: 18, gap: true },
+    { x: 2, y: 6, z: 305, width: 26 },
     { x: -22, y: 4.5, z: 304 },
     { x: -44, y: 4, z: 300 },
     { x: -72, y: 4, z: 288 },
@@ -39,6 +39,6 @@ export const GRAND_SAUT: MapDefinition = {
     { x: -55, y: 0, z: 36 },
   ],
   checkpoints: [0.24, 0.5, 0.74],
-  // Calibrées avec le pilote automatique (≈ 21,1 s) : l'Auteur demande une trajectoire parfaite.
-  medals: { auteur: 20.2, or: 21.4, argent: 23, bronze: 26 },
+  // Calibrées avec le pilote automatique (≈ 20,7 s au mieux) : l'Auteur demande une trajectoire parfaite.
+  medals: { auteur: 20, or: 21, argent: 22.5, bronze: 25 },
 };

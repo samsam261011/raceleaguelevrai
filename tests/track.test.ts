@@ -25,6 +25,6 @@ describe("piste", () => {
     // 30 m sur le côté : dans le vide
     const off = queryTrack(track, track.px[i]! + track.tz[i]! * 30, track.pz[i]! - track.tx[i]! * 30, track.py[i]!, i);
     expect(off.onSurface).toBe(false);
-    expect(off.lateral).toBeGreaterThan(20);
+    expect(Math.abs(off.lateral)).toBeGreaterThan(20);
   });
 });

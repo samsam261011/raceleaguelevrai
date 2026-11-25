@@ -1,20 +1,11 @@
-import { IN_BRAKE, IN_DRIFT, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "../physics/input";
+import { actionFor, loadBindings, type Action, type Bindings } from "../../shared/keybindings";
+import { IN_BRAKE, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "../physics/input";
 
-/**
- * Clavier et boutons tactiles → entrée du joueur (un octet par pas de physique).
- * On lit les touches par leur position (e.code) : ZQSD en AZERTY et WASD en QWERTY marchent pareil.
- */
-const KEYMAP: Record<string, number> = {
-  ArrowUp: IN_THROTTLE,
-  KeyW: IN_THROTTLE,
-  ArrowDown: IN_BRAKE,
-  KeyS: IN_BRAKE,
-  ArrowLeft: IN_LEFT,
-  KeyA: IN_LEFT,
-  ArrowRight: IN_RIGHT,
-  KeyD: IN_RIGHT,
-  Space: IN_DRIFT,
-  ShiftLeft: IN_DRIFT,
+const FLAG: Partial<Record<Action, number>> = {
+  throttle: IN_THROTTLE,
+  brake: IN_BRAKE,
+  left: IN_LEFT,
+  right: IN_RIGHT,
 };
 
 export interface ControlEvents {
@@ -22,21 +13,27 @@ export interface ControlEvents {
   onMenu: () => void;
 }
 
+/** Clavier (touches personnalisables) et boutons tactiles → entrée du joueur, un octet par pas de physique. */
 export class Controls {
   private keys = 0;
   private touch = 0;
+  private bindings: Bindings = loadBindings();
   private readonly held = new Map<number, number>();
+  /** Désactive le clavier (par exemple pendant qu'on change ses touches). */
+  paused = false;
 
   constructor(private readonly events: ControlEvents) {
     window.addEventListener("keydown", (e) => {
-      const flag = KEYMAP[e.code];
+      if (this.paused) return;
+      const action = actionFor(this.bindings, e.code);
+      const flag = action ? FLAG[action] : undefined;
       if (flag) {
         this.keys |= flag;
         e.preventDefault();
         return;
       }
       if (e.repeat) return;
-      if (e.code === "KeyR" || e.code === "Enter" || e.code === "Backspace") {
+      if (action === "restart") {
         e.preventDefault();
         this.events.onRestart();
       } else if (e.code === "Escape") {
@@ -44,14 +41,22 @@ export class Controls {
       }
     });
     window.addEventListener("keyup", (e) => {
-      const flag = KEYMAP[e.code];
+      const action = actionFor(this.bindings, e.code);
+      const flag = action ? FLAG[action] : undefined;
       if (flag) this.keys &= ~flag;
     });
-    window.addEventListener("blur", () => {
-      this.keys = 0;
-      this.touch = 0;
-      this.held.clear();
-    });
+    window.addEventListener("blur", () => this.release());
+  }
+
+  setBindings(b: Bindings): void {
+    this.bindings = b;
+    this.release();
+  }
+
+  release(): void {
+    this.keys = 0;
+    this.touch = 0;
+    this.held.clear();
   }
 
   /** Branche un bouton tactile : il reste appuyé tant que le doigt est dessus (multi-touch). */

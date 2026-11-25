@@ -1,18 +1,23 @@
 import * as THREE from "three";
 import type { Track } from "../track/types";
+import { WALL_HEIGHT } from "../physics/constants";
 
 const THICKNESS = 1.6;
 const CURB = 0.9;
 const CURB_LEN = 4;
 
-const COL_ROAD = new THREE.Color(0xcfc2b6);
-const COL_ROAD_DARK = new THREE.Color(0xbfb0a2);
-const COL_SIDE = new THREE.Color(0x8a6a5a);
-const COL_UNDER = new THREE.Color(0x5a3e3a);
-const COL_CURB_A = new THREE.Color(0xffb23e);
-const COL_CURB_B = new THREE.Color(0xfff4e6);
+const WALL_T = 0.6;
 
-/** Construit la piste en 3D : dalle, bords, bordures colorées, portiques de checkpoint, départ et arrivée. */
+const COL_ROAD = new THREE.Color(0x5d6169);
+const COL_ROAD_DARK = new THREE.Color(0x565a62);
+const COL_SIDE = new THREE.Color(0x9a9ca3);
+const COL_UNDER = new THREE.Color(0x6a6c74);
+const COL_CURB_A = new THREE.Color(0xe0393b);
+const COL_CURB_B = new THREE.Color(0xf6f6f6);
+const COL_WALL = new THREE.Color(0xeef1f5);
+const COL_WALL_TOP = new THREE.Color(0x2f6fd6);
+
+/** Construit la piste en 3D : dalle, murets latéraux, bordures rouges et blanches, portiques de checkpoint, départ et arrivée. */
 export function buildTrackMesh(track: Track): THREE.Group {
   const group = new THREE.Group();
   const pos: number[] = [];
@@ -26,8 +31,9 @@ export function buildTrackMesh(track: Track): THREE.Group {
   };
 
   const edge = (i: number, off: number, dy = 0) => {
-    const rx = track.tz[i]!;
-    const rz = -track.tx[i]!;
+    // Droite de la piste (vue de derrière) : (-tz, tx), comme la physique
+    const rx = -track.tz[i]!;
+    const rz = track.tx[i]!;
     return new THREE.Vector3(track.px[i]! + rx * off, track.py[i]! + dy, track.pz[i]! + rz * off);
   };
 
@@ -42,15 +48,23 @@ export function buildTrackMesh(track: Track): THREE.Group {
     const curb = Math.floor(track.dist[i]! / CURB_LEN) % 2 === 0 ? COL_CURB_A : COL_CURB_B;
     quad(edge(i, -h0, 0.04), edge(i + 1, -h1, 0.04), edge(i + 1, -h1 + CURB, 0.04), edge(i, -h0 + CURB, 0.04), curb);
     quad(edge(i, h0 - CURB, 0.04), edge(i + 1, h1 - CURB, 0.04), edge(i + 1, h1, 0.04), edge(i, h0, 0.04), curb);
-    // Côtés et dessous
-    quad(edge(i, -h0, -THICKNESS), edge(i + 1, -h1, -THICKNESS), edge(i + 1, -h1), edge(i, -h0), COL_SIDE);
-    quad(edge(i, h0), edge(i + 1, h1), edge(i + 1, h1, -THICKNESS), edge(i, h0, -THICKNESS), COL_SIDE);
-    quad(edge(i, h0, -THICKNESS), edge(i + 1, h1, -THICKNESS), edge(i + 1, -h1, -THICKNESS), edge(i, -h0, -THICKNESS), COL_UNDER);
+    // Murets : ils ralentissent la voiture au contact (voir physics/car.ts)
+    for (const s of [-1, 1]) {
+      const a0 = s * h0, a1 = s * h1;
+      const b0 = s * (h0 + WALL_T), b1 = s * (h1 + WALL_T);
+      const top = WALL_HEIGHT;
+      quad(edge(i, a0), edge(i + 1, a1), edge(i + 1, a1, top), edge(i, a0, top), COL_WALL);
+      quad(edge(i, a0, top), edge(i + 1, a1, top), edge(i + 1, b1, top), edge(i, b0, top), COL_WALL_TOP);
+      quad(edge(i, b0, -THICKNESS), edge(i + 1, b1, -THICKNESS), edge(i + 1, b1, top), edge(i, b0, top), COL_SIDE);
+    }
+    // Dessous
+    const o0 = h0 + WALL_T, o1 = h1 + WALL_T;
+    quad(edge(i, o0, -THICKNESS), edge(i + 1, o1, -THICKNESS), edge(i + 1, -o1, -THICKNESS), edge(i, -o0, -THICKNESS), COL_UNDER);
     // Bouts de dalle au bord d'un trou ou aux extrémités
     const capStart = i === 0 || !track.solid[i - 1];
     const capEnd = i === track.count - 2 || !track.solid[i + 1];
-    if (capStart) quad(edge(i, h0), edge(i, h0, -THICKNESS), edge(i, -h0, -THICKNESS), edge(i, -h0), COL_SIDE);
-    if (capEnd) quad(edge(i + 1, -h1), edge(i + 1, -h1, -THICKNESS), edge(i + 1, h1, -THICKNESS), edge(i + 1, h1), COL_SIDE);
+    if (capStart) quad(edge(i, o0), edge(i, o0, -THICKNESS), edge(i, -o0, -THICKNESS), edge(i, -o0), COL_SIDE);
+    if (capEnd) quad(edge(i + 1, -o1), edge(i + 1, -o1, -THICKNESS), edge(i + 1, o1, -THICKNESS), edge(i + 1, o1), COL_SIDE);
   }
 
   const geo = new THREE.BufferGeometry();
@@ -92,9 +106,9 @@ function checker(): THREE.Texture {
 
 function gate(track: Track, i: number, kind: "start" | "finish" | "checkpoint"): THREE.Group {
   const g = new THREE.Group();
-  const w = track.width[i]! / 2 + 0.8;
+  const w = track.width[i]! / 2 + WALL_T + 0.6;
   const height = kind === "checkpoint" ? 6 : 7.5;
-  const pillarMat = new THREE.MeshLambertMaterial({ color: kind === "checkpoint" ? 0xffb23e : 0x2a1f48, flatShading: true });
+  const pillarMat = new THREE.MeshLambertMaterial({ color: kind === "checkpoint" ? 0xffb23e : 0x24324a, flatShading: true });
   for (const side of [-1, 1]) {
     const p = new THREE.Mesh(new THREE.BoxGeometry(0.9, height, 0.9), pillarMat);
     p.position.set(side * w, height / 2, 0);

@@ -25,6 +25,7 @@
           <span class="map-name"><span id="mapName"></span> · record <span id="pb">--:--,---</span></span>
         </div>
         <div class="top-right">
+          <button class="icon-btn" id="settingsBtn" aria-label="Paramètres"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
           <button class="icon-btn" id="restartBtn" aria-label="Recommencer (R)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
         </div>
       </div>
@@ -38,19 +39,25 @@
         <button class="tbtn" id="tRight" aria-label="Droite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
       </div>
       <div class="touch-pad right">
-        <div class="stack">
-          <button class="tbtn small" id="tDrift">Drift</button>
-          <button class="tbtn small" id="tBrake">Frein</button>
-        </div>
+        <button class="tbtn small" id="tBrake">Frein</button>
         <button class="tbtn gas" id="tGas">Gaz</button>
       </div>
 
       <div class="keys-hint">
-        <span><kbd>↑</kbd>Gaz</span><span><kbd>↓</kbd>Frein</span><span><kbd>← →</kbd>Tourner</span><span><kbd>Espace</kbd>Drift</span><span><kbd>R</kbd>Recommencer</span>
+        <span><kbd>↑</kbd>Gaz</span><span><kbd>↓</kbd>Frein</span><span><kbd>← →</kbd>Tourner</span><span><kbd>R</kbd>Recommencer</span>
       </div>
     </div>
 
     <div class="results" id="results" hidden></div>
+
+    <div class="settings" id="settings" hidden>
+      <div class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <h2 id="settingsTitle">Commandes</h2>
+        <p class="settings-sub">Clique sur une touche puis appuie sur la nouvelle.</p>
+        <div id="keybinds"></div>
+        <button class="settings-close" id="closeSettings">Fermer</button>
+      </div>
+    </div>
 
     <script type="module" src="/src/race/main.ts"></script>
   </body>

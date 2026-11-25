@@ -2,13 +2,16 @@ import { clamp, dcos, dsin, sign, wrapAngle } from "../math/dmath";
 import { queryTrack } from "../track/build";
 import type { Track } from "../track/types";
 import * as C from "./constants";
-import { has, IN_BRAKE, IN_DRIFT, IN_LEFT, IN_RIGHT, IN_THROTTLE, type InputBits } from "./input";
+import { has, IN_BRAKE, IN_LEFT, IN_RIGHT, IN_THROTTLE, type InputBits } from "./input";
 
+/**
+ * Repère : la voiture avance selon (sin(cap), cos(cap)) au sol.
+ * Vue de derrière, sa droite est (-cos(cap), sin(cap)) et tourner à droite fait baisser le cap.
+ */
 export interface CarState {
   x: number;
   y: number;
   z: number;
-  /** Cap : 0 = vers +z, angle positif = vers +x. */
   heading: number;
   vx: number;
   vz: number;
@@ -16,7 +19,8 @@ export interface CarState {
   /** Position actuelle du volant, de -1 (gauche) à 1 (droite). */
   steer: number;
   grounded: boolean;
-  drifting: boolean;
+  /** La voiture frotte contre un rebord pendant ce pas. */
+  onWall: boolean;
   /** Indice de piste le plus proche (accélère la recherche). */
   trackIndex: number;
   /** Distance parcourue le long de la piste. */
@@ -36,7 +40,7 @@ export function spawnCar(track: Track): CarState {
     vy: 0,
     steer: 0,
     grounded: true,
-    drifting: false,
+    onWall: false,
     trackIndex: i,
     along: track.dist[i]!,
     fell: false,
@@ -45,29 +49,20 @@ export function spawnCar(track: Track): CarState {
 
 /** Cap correspondant à une direction (tx, tz), calculé sans trigonométrie de la plateforme. */
 function headingOf(tx: number, tz: number): number {
-  // Recherche dichotomique de l'angle dont (sin, cos) = (tx, tz) : déterministe.
-  let lo = -Math.PI;
-  let hi = Math.PI;
   let best = 0;
   let bestErr = Infinity;
-  for (let k = 0; k <= 720; k++) {
-    const a = lo + ((hi - lo) * k) / 720;
-    const e = (dsin(a) - tx) ** 2 + (dcos(a) - tz) ** 2;
-    if (e < bestErr) {
-      bestErr = e;
-      best = a;
+  const scan = (lo: number, hi: number, steps: number) => {
+    for (let k = 0; k <= steps; k++) {
+      const a = lo + ((hi - lo) * k) / steps;
+      const e = (dsin(a) - tx) ** 2 + (dcos(a) - tz) ** 2;
+      if (e < bestErr) {
+        bestErr = e;
+        best = a;
+      }
     }
-  }
-  lo = best - 0.01;
-  hi = best + 0.01;
-  for (let k = 0; k <= 200; k++) {
-    const a = lo + ((hi - lo) * k) / 200;
-    const e = (dsin(a) - tx) ** 2 + (dcos(a) - tz) ** 2;
-    if (e < bestErr) {
-      bestErr = e;
-      best = a;
-    }
-  }
+  };
+  scan(-Math.PI, Math.PI, 720);
+  scan(best - 0.01, best + 0.01, 200);
   return best;
 }
 
@@ -77,7 +72,7 @@ export function copyCar(s: CarState): CarState {
 
 /** Avance la voiture d'un pas de physique (1/120 s). Fonction pure et déterministe. */
 export function stepCar(s: CarState, input: InputBits, track: Track): CarState {
-  const n: CarState = { ...s };
+  const n: CarState = { ...s, onWall: false };
   if (n.fell) return n;
   const dt = C.DT;
 
@@ -86,49 +81,68 @@ export function stepCar(s: CarState, input: InputBits, track: Track): CarState {
   const maxDelta = C.STEER_RESPONSE * dt;
   n.steer += clamp(target - n.steer, -maxDelta, maxDelta);
 
-  const fx = dsin(n.heading);
-  const fz = dcos(n.heading);
-  // Vecteur droite
-  const rx = fz;
-  const rz = -fx;
+  let fx = dsin(n.heading);
+  let fz = dcos(n.heading);
+  // Droite de la voiture
+  let rx = -fz;
+  let rz = fx;
   let vf = n.vx * fx + n.vz * fz;
   let vl = n.vx * rx + n.vz * rz;
 
   if (n.grounded) {
-    const throttle = has(input, IN_THROTTLE);
-    const brake = has(input, IN_BRAKE);
-    n.drifting = has(input, IN_DRIFT) && vf > 12 && Math.abs(n.steer) > 0.3;
-
-    if (throttle && vf < C.VMAX) vf += C.ENGINE * (1 - vf / C.VMAX) * dt;
-    if (brake) {
+    if (has(input, IN_THROTTLE) && vf < C.VMAX) vf += C.ENGINE * (1 - vf / C.VMAX) * dt;
+    if (has(input, IN_BRAKE)) {
       if (vf > 0.5) vf = Math.max(0, vf - C.BRAKE * dt);
       else if (vf > -C.REVERSE_MAX) vf -= C.REVERSE_ACCEL * dt;
     }
-    vf -= vf * (n.drifting ? C.DRIFT_DRAG + C.ROLL_DRAG : C.ROLL_DRAG);
+    vf -= vf * C.ROLL_DRAG;
 
     const speedAbs = Math.abs(vf);
     const lowSpeed = clamp(speedAbs / 8, 0, 1);
-    const highSpeed = 1 - 0.35 * clamp(speedAbs / C.VMAX, 0, 1);
-    const boost = n.drifting ? C.DRIFT_STEER_BOOST : 1;
-    n.heading = wrapAngle(n.heading + n.steer * C.STEER_MAX * lowSpeed * highSpeed * boost * sign(vf) * dt);
+    const highSpeed = 1 - 0.3 * clamp(speedAbs / C.VMAX, 0, 1);
+    n.heading = wrapAngle(n.heading - n.steer * C.STEER_MAX * lowSpeed * highSpeed * sign(vf) * dt);
 
-    vl *= n.drifting ? C.DRIFT_GRIP_KEEP : C.GRIP_KEEP;
+    vl *= C.GRIP_KEEP;
 
     // Recompose la vitesse dans le nouveau repère de la voiture
-    const nfx = dsin(n.heading);
-    const nfz = dcos(n.heading);
-    n.vx = nfx * vf + nfz * vl;
-    n.vz = nfz * vf - nfx * vl;
+    fx = dsin(n.heading);
+    fz = dcos(n.heading);
+    rx = -fz;
+    rz = fx;
+    n.vx = fx * vf + rx * vl;
+    n.vz = fz * vf + rz * vl;
   } else {
-    n.drifting = false;
-    n.heading = wrapAngle(n.heading + n.steer * C.AIR_STEER * dt);
+    n.heading = wrapAngle(n.heading - n.steer * C.AIR_STEER * dt);
   }
 
   const prevY = n.y;
   n.x += n.vx * dt;
   n.z += n.vz * dt;
 
-  const hit = queryTrack(track, n.x, n.z, n.y, n.trackIndex);
+  let hit = queryTrack(track, n.x, n.z, n.y, n.trackIndex);
+
+  // Rebords : on reste sur la piste, mais ça ralentit
+  if (hit.solid && n.y < hit.groundY + C.WALL_HEIGHT) {
+    const limit = hit.halfWidth - C.CAR_HALF_WIDTH;
+    if (Math.abs(hit.lateral) > limit) {
+      const side = sign(hit.lateral);
+      const push = Math.abs(hit.lateral) - limit;
+      // Droite de la piste : (-tz, tx)
+      const trx = -track.tz[hit.index]!;
+      const trz = track.tx[hit.index]!;
+      n.x -= trx * push * side;
+      n.z -= trz * push * side;
+      const vOut = (n.vx * trx + n.vz * trz) * side;
+      if (vOut > 0) {
+        n.vx -= trx * side * vOut * (1 + C.WALL_BOUNCE);
+        n.vz -= trz * side * vOut * (1 + C.WALL_BOUNCE);
+      }
+      n.vx *= C.WALL_SPEED_KEEP;
+      n.vz *= C.WALL_SPEED_KEEP;
+      n.onWall = true;
+      hit = queryTrack(track, n.x, n.z, n.y, hit.index);
+    }
+  }
   n.trackIndex = hit.index;
   n.along = hit.along;
 
@@ -139,7 +153,7 @@ export function stepCar(s: CarState, input: InputBits, track: Track): CarState {
       n.y = hit.groundY;
       n.vy = (n.y - prevY) / dt;
     } else {
-      // Bosse ou bord de piste : la voiture décolle
+      // Bosse ou tremplin : la voiture décolle
       n.grounded = false;
       n.vy -= C.GRAVITY * dt;
       n.y = prevY + n.vy * dt;

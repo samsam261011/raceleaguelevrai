@@ -4,7 +4,7 @@ import { GRAND_SAUT } from "../src/race/track/maps/grandSaut";
 import { Attempt, replayAttempt } from "../src/race/sim/attempt";
 import { autopilot } from "../src/race/sim/autopilot";
 import { decodeInputs, encodeInputs, fromBase64, toBase64 } from "../src/race/replay/codec";
-import { IN_THROTTLE } from "../src/race/physics/input";
+import { IN_LEFT, IN_RIGHT, IN_THROTTLE } from "../src/race/physics/input";
 
 function drive(lookahead = 16, turnSpeed = 36) {
   const track = buildTrack(GRAND_SAUT);
@@ -44,10 +44,27 @@ describe("physique déterministe", () => {
     expect(decodeInputs(fromBase64(toBase64(packed)))).toEqual(a.inputs);
   });
 
-  it("aller tout droit à fond fait tomber la voiture dans le vide", () => {
+  it("foncer tout droit fait taper le rebord du premier virage, qui freine la voiture", () => {
     const track = buildTrack(GRAND_SAUT);
     const a = new Attempt(track);
-    while (a.status === "running" && a.tick < 120 * 30) a.step(IN_THROTTLE);
-    expect(a.status).toBe("fell");
+    let touched = false;
+    let maxSpeed = 0;
+    while (a.tick < 120 * 10) {
+      a.step(IN_THROTTLE);
+      const speed = Math.hypot(a.car.vx, a.car.vz);
+      maxSpeed = Math.max(maxSpeed, speed);
+      if (a.car.onWall) touched = true;
+    }
+    expect(a.status).toBe("running");
+    expect(touched).toBe(true);
+    expect(Math.hypot(a.car.vx, a.car.vz)).toBeLessThan(maxSpeed * 0.5);
+  });
+
+  it("la voiture ne sort jamais de la piste à cause des rebords", () => {
+    const track = buildTrack(GRAND_SAUT);
+    const a = new Attempt(track);
+    // Zigzag brutal : gauche, droite, gauche...
+    while (a.status === "running" && a.tick < 120 * 20) a.step(IN_THROTTLE | (Math.floor(a.tick / 90) % 2 ? IN_LEFT : IN_RIGHT));
+    expect(a.status).not.toBe("fell");
   });
 });

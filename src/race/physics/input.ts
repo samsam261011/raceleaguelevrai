@@ -3,7 +3,8 @@ export const IN_THROTTLE = 1;
 export const IN_BRAKE = 2;
 export const IN_LEFT = 4;
 export const IN_RIGHT = 8;
-export const IN_DRIFT = 16;
+/** Toutes les entrées de conduite (sert à détecter la première touche qui lance le chrono). */
+export const IN_DRIVE = IN_THROTTLE | IN_BRAKE | IN_LEFT | IN_RIGHT;
 
 export type InputBits = number;
 

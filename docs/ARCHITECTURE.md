@@ -3,7 +3,7 @@
 ## Principe : la course est déterministe
 
 La physique tourne à **120 pas par seconde**, indépendamment de l'écran. À chaque pas, l'entrée du joueur
-tient sur un octet (gaz, frein, gauche, droite, drift). Avec les mêmes entrées, la simulation donne
+tient sur un octet (gaz, frein, gauche, droite). Avec les mêmes entrées, la simulation donne
 **exactement** le même résultat sur toutes les machines.
 
 C'est ce qui permet :

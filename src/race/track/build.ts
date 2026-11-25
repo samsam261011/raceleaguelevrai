@@ -1,7 +1,7 @@
 import type { MapDefinition, Track } from "./types";
 
 const SUBDIV = 32;
-const DEFAULT_WIDTH = 14;
+const DEFAULT_WIDTH = 22;
 
 /** Catmull-Rom uniforme sur une composante. */
 function cr(p0: number, p1: number, p2: number, p3: number, t: number): number {
@@ -99,6 +99,10 @@ export interface TrackHit {
   groundY: number;
   /** La voiture est au-dessus d'une partie solide de la piste. */
   onSurface: boolean;
+  /** Le tronçon le plus proche a un sol (pas un trou). */
+  solid: boolean;
+  /** Demi-largeur de la piste à cet endroit. */
+  halfWidth: number;
 }
 
 /**
@@ -139,11 +143,12 @@ export function queryTrack(track: Track, x: number, z: number, y: number, hint: 
   const czp = track.pz[i]! + (track.pz[i + 1]! - track.pz[i]!) * t;
   const tx = track.tx[i]!;
   const tz = track.tz[i]!;
-  // Vecteur "droite" de la piste : (tz, -tx)
-  const lateral = (x - cxp) * tz + (z - czp) * -tx;
+  // Droite de la piste (vue de derrière) : (-tz, tx)
+  const lateral = (x - cxp) * -tz + (z - czp) * tx;
   const w = track.width[i]! + (track.width[i + 1]! - track.width[i]!) * t;
   const groundY = track.py[i]! + (track.py[i + 1]! - track.py[i]!) * t;
   const along = track.dist[i]! + (track.dist[i + 1]! - track.dist[i]!) * t;
-  const onSurface = track.solid[i] === 1 && Math.abs(lateral) <= w / 2;
-  return { index: i, along, lateral, groundY, onSurface };
+  const solid = track.solid[i] === 1;
+  const onSurface = solid && Math.abs(lateral) <= w / 2;
+  return { index: i, along, lateral, groundY, onSurface, solid, halfWidth: w / 2 };
 }

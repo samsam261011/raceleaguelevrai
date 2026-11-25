@@ -1,30 +1,39 @@
 import "./ui/race.css";
+import { mountKeybindEditor } from "../shared/keybindEditor";
 import { Controls } from "./input/controls";
 import { copyCar, type CarState } from "./physics/car";
 import { DT } from "./physics/constants";
-import { IN_BRAKE, IN_DRIFT, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "./physics/input";
+import { IN_BRAKE, IN_DRIVE, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "./physics/input";
 import { RaceView } from "./render/view";
-import { Session, medalFor, formatDelta, formatTime } from "./session/session";
+import { formatDelta, formatTime, medalFor, Session } from "./session/session";
 import { Attempt } from "./sim/attempt";
+import { autopilot } from "./sim/autopilot";
 import { buildTrack } from "./track/build";
 import { DEFAULT_MAP, MAPS } from "./track/maps";
 import { Hud } from "./ui/hud";
 
-type Phase = "countdown" | "running" | "between" | "results";
+/**
+ * ready   : la voiture attend sur la ligne, le chrono part à la première touche de conduite
+ * running : l'essai est en cours
+ * between : petit temps après une arrivée ou une chute
+ * results : les 10 essais sont joués
+ */
+type Phase = "ready" | "running" | "between" | "results";
 
+const $ = (id: string) => document.getElementById(id)!;
 const params = new URLSearchParams(location.search);
 const mapDef = MAPS[params.get("map") ?? DEFAULT_MAP] ?? MAPS[DEFAULT_MAP]!;
 const track = buildTrack(mapDef);
 document.title = `${mapDef.name} · RaceLeague`;
-document.getElementById("mapName")!.textContent = mapDef.name;
+$("mapName").textContent = mapDef.name;
 
 const hud = new Hud();
-const view = new RaceView(document.getElementById("scene") as HTMLCanvasElement, track);
+const view = new RaceView($("scene") as HTMLCanvasElement, track);
 
 let session = new Session();
 let attempt = new Attempt(track);
-let ghost: { attempt: Attempt; inputs: number[] } | null = null;
-let phase: Phase = "countdown";
+let ghost: { attempt: Attempt; inputs: number[]; time: number } | null = null;
+let phase: Phase = "ready";
 let phaseTimer = 0;
 let accumulator = 0;
 
@@ -48,22 +57,39 @@ function savePersonalBest(t: number): void {
 
 const controls = new Controls({
   onRestart: () => restart(),
-  onMenu: () => goMenu(),
+  onMenu: () => (settingsOpen() ? closeSettings() : goMenu()),
 });
 for (const [id, flag] of [
   ["tLeft", IN_LEFT],
   ["tRight", IN_RIGHT],
   ["tGas", IN_THROTTLE],
   ["tBrake", IN_BRAKE],
-  ["tDrift", IN_DRIFT],
 ] as const) {
-  controls.bindTouchButton(document.getElementById(id)!, flag);
+  controls.bindTouchButton($(id), flag);
 }
-document.getElementById("restartBtn")!.addEventListener("click", () => restart());
-document.getElementById("menuBtn")!.addEventListener("click", () => goMenu());
+$("restartBtn").addEventListener("click", () => restart());
+$("menuBtn").addEventListener("click", () => goMenu());
 // Affiche les commandes tactiles dès qu'on touche l'écran
 window.addEventListener("touchstart", () => document.body.classList.add("touch"), { once: true, passive: true });
 if (window.matchMedia("(pointer: coarse)").matches) document.body.classList.add("touch");
+
+// Paramètres : changer ses touches
+const settings = $("settings");
+mountKeybindEditor($("keybinds"), (b) => controls.setBindings(b));
+const settingsOpen = () => !settings.hidden;
+function openSettings(): void {
+  settings.hidden = false;
+  controls.paused = true;
+  controls.release();
+  ($("closeSettings") as HTMLButtonElement).focus();
+}
+function closeSettings(): void {
+  settings.hidden = true;
+  controls.paused = false;
+  $("settingsBtn").focus();
+}
+$("settingsBtn").addEventListener("click", openSettings);
+$("closeSettings").addEventListener("click", closeSettings);
 
 function goMenu(): void {
   location.href = "./";
@@ -74,22 +100,17 @@ function refreshBest(): void {
   hud.setBest(best, medalFor(best, mapDef.medals));
 }
 
-/** Prépare un nouvel essai. Le premier a un compte à rebours, les suivants partent tout de suite. */
-function beginAttempt(withCountdown: boolean): void {
+/** Prépare un essai : la voiture attend sur la ligne, le chrono partira à la première touche. */
+function beginAttempt(): void {
   attempt = new Attempt(track);
   const best = session.best;
-  ghost = best ? { attempt: new Attempt(track), inputs: best.inputs } : null;
+  ghost = best && best.time !== null ? { attempt: new Attempt(track), inputs: best.inputs, time: best.time } : null;
   view.snapCamera();
   hud.setAttempt(session.current);
   hud.setTime(0);
+  hud.clearFlash();
   accumulator = 0;
-  if (withCountdown) {
-    phase = "countdown";
-    phaseTimer = 3;
-  } else {
-    phase = "running";
-    hud.clearFlash();
-  }
+  phase = "ready";
 }
 
 function finishAttempt(): void {
@@ -107,16 +128,15 @@ function finishAttempt(): void {
   phaseTimer = attempt.status === "finished" ? 1.6 : 0.9;
 }
 
-/** Recommencer : abandonne l'essai en cours (il compte) et repart aussitôt. */
+/** Recommencer : abandonne l'essai en cours (il compte s'il avait commencé) et remet la voiture sur la ligne. */
 function restart(): void {
-  if (phase === "results") return;
-  if (phase === "running" && attempt.tick > 0) {
+  if (phase === "results" || settingsOpen()) return;
+  if (phase === "running") {
     session.record({ time: null, splits: [], inputs: attempt.inputs.slice() });
     refreshBest();
   }
-  if (phase === "countdown") return;
   if (session.done) return showResults();
-  beginAttempt(false);
+  beginAttempt();
 }
 
 function showResults(): void {
@@ -131,21 +151,23 @@ function showResults(): void {
       hud.hideResults();
       session = new Session();
       refreshBest();
-      beginAttempt(true);
+      beginAttempt();
     },
     goMenu,
   );
 }
 
+// En développement seulement : race.html?pilote ajoute le pilote automatique au gaz (pour tester le fantôme).
+const devPilot = import.meta.env.DEV && params.has("pilote");
+
 function tick(): void {
-  const ev = attempt.step(controls.bits);
+  const ev = attempt.step(devPilot && (controls.bits & IN_THROTTLE) ? autopilot(attempt.car, track) : controls.bits);
   if (ghost && ghost.attempt.status === "running") {
     const i = ghost.attempt.tick;
     if (i < ghost.inputs.length) ghost.attempt.step(ghost.inputs[i]!);
   }
   if (ev) {
-    const bestSplits = session.best?.splits;
-    const ref = bestSplits?.[ev.index];
+    const ref = session.best?.splits?.[ev.index];
     hud.showSplit(ev.index, ev.time, ref === undefined ? null : ev.time - ref);
   }
   if (attempt.status !== "running") finishAttempt();
@@ -156,18 +178,12 @@ function frame(now: number): void {
   const dt = Math.min((now - last) / 1000, 0.25);
   last = now;
 
-  if (phase === "countdown") {
-    const before = Math.ceil(phaseTimer);
-    phaseTimer -= dt;
-    const after = Math.ceil(phaseTimer);
-    if (after !== before || !document.querySelector(".center.show")) {
-      if (phaseTimer > 0) hud.flash(`<b class="count">${after}</b>`, 0, "count");
-    }
-    if (phaseTimer <= 0) {
-      phase = "running";
-      hud.flash('<b class="count go">GO</b>', 600, "count");
-    }
-  } else if (phase === "running") {
+  if (phase === "ready" && !settingsOpen() && (controls.bits & IN_DRIVE) !== 0) {
+    // Première touche : le chrono démarre maintenant
+    phase = "running";
+    accumulator = 0;
+  }
+  if (phase === "running") {
     accumulator += dt;
     while (accumulator >= DT && phase === "running") {
       tick();
@@ -178,12 +194,12 @@ function frame(now: number): void {
     phaseTimer -= dt;
     if (phaseTimer <= 0) {
       if (session.done) showResults();
-      else beginAttempt(false);
+      else beginAttempt();
     }
   }
 
   const alpha = phase === "running" ? accumulator / DT : 1;
-  const g = ghost && ghost.attempt.tick > 0 ? { prev: ghost.attempt.prev, cur: ghost.attempt.car } : null;
+  const g = ghost && ghost.attempt.tick > 0 ? { prev: ghost.attempt.prev, cur: ghost.attempt.car, time: ghost.time } : null;
   const prev: CarState = attempt.tick > 0 ? attempt.prev : copyCar(attempt.car);
   view.render(prev, attempt.car, Math.min(1, alpha), g, dt);
   hud.setSpeed(Math.hypot(attempt.car.vx, attempt.car.vz));
@@ -192,6 +208,6 @@ function frame(now: number): void {
 
 hud.setBest(null, null);
 const pb = loadPersonalBest();
-if (pb !== null) document.getElementById("pb")!.textContent = formatTime(pb);
-beginAttempt(true);
+if (pb !== null) $("pb").textContent = formatTime(pb);
+beginAttempt();
 requestAnimationFrame(frame);

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import "./menu.css";
+import { mountKeybindEditor } from "../shared/keybindEditor";
 
 // Menu principal : profil, mode classé, salles, maps, menu latéral et décor 3D.
 // Les données (adversaires, classements, temps) sont des exemples tant que le serveur n'existe pas.
@@ -427,7 +428,7 @@ import "./menu.css";
   {
     let pb = null;
     try { const v = localStorage.getItem("raceleague.best.grand-saut"); pb = v ? Number(v) : null; } catch (e) { pb = null; }
-    Object.assign(MAPDATA[0], { auteur: 20.2, or: 21.4, argent: 23, bronze: 26, mine: pb });
+    Object.assign(MAPDATA[0], { auteur: 20, or: 21, argent: 22.5, bronze: 25, mine: pb });
   }
   const ftime = (t) => { if (t == null) return "—"; const m = Math.floor(t / 60), sec = t - m * 60; return m + ":" + sec.toFixed(3).padStart(6, "0").replace(".", ","); };
   const medalOf = (d, t) => t == null ? null : t <= d.auteur ? "auteur" : t <= d.or ? "or" : t <= d.argent ? "argent" : t <= d.bronze ? "bronze" : null;
@@ -532,6 +533,7 @@ import "./menu.css";
   });
 
   // Paramètres
+  mountKeybindEditor($("keybinds"));
   $("closeSettings").addEventListener("click", () => {
     const v = $("nameInput").value.trim();
     if (v) { name = v.slice(0, 16); store.set("pseudo", name); applyName(); renderBoard(document.querySelector(".tab.on").dataset.board); }

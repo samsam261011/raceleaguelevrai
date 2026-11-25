@@ -15,11 +15,11 @@ export function autopilot(car: CarState, track: Track, lookahead = 14, maxSpeedI
   const dz = track.pz[target]! - car.z;
   const fx = dsin(car.heading);
   const fz = dcos(car.heading);
-  // Produit vectoriel : > 0 si la cible est à droite
+  // Produit vectoriel : > 0 si la cible est à droite (vue de derrière)
   const cross = fx * dz - fz * dx;
   const dot = fx * dx + fz * dz;
   const len = Math.sqrt(dx * dx + dz * dz) || 1;
-  const side = -cross / len;
+  const side = cross / len;
   let bits = 0;
   if (side > 0.04) bits |= IN_RIGHT;
   else if (side < -0.04) bits |= IN_LEFT;

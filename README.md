@@ -24,9 +24,14 @@ npm run dev      # lance le jeu sur http://localhost:5173
 | Accélérer | ↑ ou Z/W | bouton Gaz |
 | Freiner / marche arrière | ↓ ou S | bouton Frein |
 | Tourner | ← → ou Q/A D | flèches à gauche |
-| Drift | Espace | bouton Drift |
 | Recommencer tout de suite | R ou Entrée | bouton ↺ |
 | Retour au menu | Échap | bouton ‹ |
+
+Les touches se changent dans **Paramètres** (menu principal ou roue dentée pendant la course).
+Le chrono de chaque essai ne démarre qu'à la première touche de conduite : pas de décompte.
+
+En développement (`npm run dev`), `race.html?pilote` fait conduire un pilote automatique tant qu'on tient le gaz,
+pratique pour tester le fantôme et l'écran de fin.
 
 ## Autres commandes utiles
 

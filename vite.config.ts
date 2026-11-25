@@ -12,6 +12,8 @@ export default defineConfig({
         menu: fileURLToPath(new URL("./index.html", import.meta.url)),
         race: fileURLToPath(new URL("./race.html", import.meta.url)),
       },
+      // Three.js dans son propre fichier, partagé par les deux pages et mis en cache.
+      output: { manualChunks: { three: ["three"] } },
     },
   },
   test: {

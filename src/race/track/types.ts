@@ -3,7 +3,7 @@ export interface ControlPoint {
   x: number;
   y: number;
   z: number;
-  /** Largeur de la piste en mètres (14 par défaut). */
+  /** Largeur de la piste en mètres (22 par défaut). */
   width?: number;
   /** Le tronçon qui part de ce point est un trou : il faut le sauter. */
   gap?: boolean;
