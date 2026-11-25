@@ -56,6 +56,8 @@ function loadInitialMap(): EditorMap {
 const canvas = $("scene") as unknown as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene();
 buildSky(scene);
 scene.fog = new THREE.Fog(0xcfe6f5, 900, 3000); // vue de haut : brouillard plus loin qu'en course

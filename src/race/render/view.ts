@@ -5,7 +5,7 @@ import { VMAX } from "../physics/constants";
 import type { World } from "../world/world";
 import { buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
-import { buildEnvironment } from "./environment";
+import { buildEnvironment, enableSunShadows, followSunShadow, shadowQuality, type Lighting } from "./environment";
 import { SpeedLines } from "./speedLines";
 
 /** La scène 3D : piste, voiture, fantôme et caméra de poursuite. Uniquement de l'affichage. */
@@ -24,15 +24,34 @@ export class RaceView {
   private readonly speedLines: SpeedLines | null;
   private wheelSpin = 0;
   private ghostSpin = 0;
+  private readonly lighting: Lighting;
+  private readonly shadowReach: number;
 
   constructor(canvas: HTMLCanvasElement, world: World, fx: HTMLCanvasElement | null = null) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    buildEnvironment(this.scene, world);
-    this.scene.add(buildWorldMesh(world));
+    // Tone mapping ACES : blancs qui ne brûlent pas, couleurs plus riches
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    // Ombres : une seule carte qui suit la voiture, adoucie (PCF), plus petite sur les machines modestes
+    const q = shadowQuality();
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.lighting = buildEnvironment(this.scene, world);
+    enableSunShadows(this.lighting.sun, q.mapSize, q.radius);
+    this.shadowReach = q.radius;
+    const track = buildWorldMesh(world);
+    track.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true;
+    });
+    this.scene.add(track);
     this.speedLines = fx ? new SpeedLines(fx) : null;
     this.car = buildCarMesh(0xffb23e);
+    // La voiture projette son ombre mais n'en reçoit pas : pas de rayures d'ombre sur ses petites faces
+    this.car.root.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+    });
     this.ghost = buildGhostMesh();
     this.ghostLabel = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, depthTest: false }));
     this.ghostLabel.scale.set(4.6, 1.15, 1);
@@ -111,6 +130,9 @@ export class RaceView {
       this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-dt * 5));
       this.camera.updateProjectionMatrix();
     }
+    // La zone d'ombre est centrée un peu devant la voiture : c'est là que regarde la caméra
+    const ahead = this.shadowReach * 0.45;
+    followSunShadow(this.lighting.sun, p.x + fx * ahead, this.camY, p.z + fz * ahead);
     this.speedLines?.draw(k, cur.boosting, dt);
     this.renderer.render(this.scene, this.camera);
   }
