@@ -20,22 +20,28 @@ versions (`src/race/math/dmath.ts`). L'affichage, lui, peut utiliser ce qu'il ve
 ## Séparation simulation / affichage
 
 ```
-Entrées (clavier, tactile) ──► Simulation (physics, track, sim) ──► État de la voiture
+Entrées (clavier, tactile) ──► Simulation (physics, world, sim) ──► État de la voiture
                                          ▲                                 │
                          replays, fantômes, serveur                         ▼
                                                               Affichage (render, ui)
 ```
 
-- `physics/` et `track/` ne connaissent ni Three.js ni le navigateur : ils tournent aussi dans les tests et,
+- `physics/` et `world/` ne connaissent ni Three.js ni le navigateur : ils tournent aussi dans les tests et,
   plus tard, sur le serveur.
 - `render/` interpole entre deux pas de physique pour que l'image reste fluide à 60, 120 ou 144 images/s.
 
 ## Pistes
 
-Une map est une liste de points de contrôle (`src/race/track/maps/`). `buildTrack` en tire une piste
-échantillonnée finement (courbes de Catmull-Rom). Un point marqué `gap: true` ouvre un trou à sauter.
-Les checkpoints sont donnés en fraction de la longueur. Les temps des médailles sont calibrés avec le
-pilote automatique (`src/race/sim/autopilot.ts`), qui sert aussi aux tests pour vérifier qu'une map est faisable.
+Une map est une liste de blocs posés : type, case (x, z), hauteur (crans de 2 m) et quart de tour
+(`src/race/world/`). Chaque type de pièce (`pieces.ts`) a une ligne centrale ; sa surface fait 20 m de large
+autour de cette ligne. `buildWorld` range les blocs par case. À chaque pas, la physique cherche dans la case de la
+voiture la surface la plus haute qui n'est pas au-dessus d'elle (`groundAt`) : c'est le sol. Pas de sol, la voiture
+vole ; sous la hauteur de l'herbe, l'essai est perdu. Les rebords sont sur les côtés des pièces, sauf si un autre
+bloc est collé de ce côté à la même hauteur.
+
+`findRoute` suit les raccords du départ à l'arrivée (en cherchant l'atterrissage jusqu'à 5 cases après un saut).
+Il sert au pilote automatique, aux tests et à estimer la longueur d'un circuit. Les temps des médailles sont
+calibrés avec ce pilote (`src/race/sim/autopilot.ts`).
 
 ## Multijoueur (à venir)
 

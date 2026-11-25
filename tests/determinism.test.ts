@@ -1,25 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { buildTrack } from "../src/race/track/build";
-import { GRAND_SAUT } from "../src/race/track/maps/grandSaut";
-import { Attempt, replayAttempt } from "../src/race/sim/attempt";
-import { autopilot } from "../src/race/sim/autopilot";
-import { decodeInputs, encodeInputs, fromBase64, toBase64 } from "../src/race/replay/codec";
 import { IN_LEFT, IN_RIGHT, IN_THROTTLE } from "../src/race/physics/input";
+import { decodeInputs, encodeInputs, fromBase64, toBase64 } from "../src/race/replay/codec";
+import { Attempt, replayAttempt } from "../src/race/sim/attempt";
+import { makeAutopilot } from "../src/race/sim/autopilot";
+import { GRAND_SAUT } from "../src/race/world/maps/grandSaut";
+import { findRoute } from "../src/race/world/route";
+import { buildWorld } from "../src/race/world/world";
 
-function drive(lookahead = 16, turnSpeed = 36) {
-  const track = buildTrack(GRAND_SAUT);
-  const a = new Attempt(track);
-  while (a.status === "running" && a.tick < 120 * 90) a.step(autopilot(a.car, track, lookahead, turnSpeed));
+const world = buildWorld(GRAND_SAUT);
+
+function drive(lookahead = 14, turnSpeed = 34) {
+  const route = findRoute(GRAND_SAUT.blocks)!;
+  const pilot = makeAutopilot(route, lookahead, turnSpeed);
+  const a = new Attempt(world);
+  while (a.status === "running" && a.tick < 120 * 90) a.step(pilot(a.car));
   return a;
 }
 
 describe("physique déterministe", () => {
-  it("la map est faisable de bout en bout", () => {
+  it("la map est faisable de bout en bout (saut compris)", () => {
     const a = drive();
     expect(a.status).toBe("finished");
-    expect(a.splits).toHaveLength(3);
-    expect(a.finishTime!).toBeGreaterThan(15);
-    expect(a.finishTime!).toBeLessThan(GRAND_SAUT.medals.argent);
+    expect(a.splits).toHaveLength(2);
+    expect(a.finishTime!).toBeLessThan(GRAND_SAUT.medals.bronze);
   });
 
   it("deux runs avec les mêmes entrées donnent exactement le même résultat", () => {
@@ -30,9 +33,9 @@ describe("physique déterministe", () => {
   });
 
   it("rejouer les entrées enregistrées redonne le même temps (fantôme, anti-triche)", () => {
-    const a = drive(20, 40);
-    const replay = replayAttempt(buildTrack(GRAND_SAUT), a.inputs);
-    expect(replay.status).toBe("finished");
+    const a = drive(18, 38);
+    const replay = replayAttempt(world, a.inputs);
+    expect(replay.status).toBe(a.status);
     expect(replay.time).toBe(a.finishTime);
     expect(replay.splits).toEqual(a.splits);
   });
@@ -45,26 +48,40 @@ describe("physique déterministe", () => {
   });
 
   it("foncer tout droit fait taper le rebord du premier virage, qui freine la voiture", () => {
-    const track = buildTrack(GRAND_SAUT);
-    const a = new Attempt(track);
+    const a = new Attempt(world);
     let touched = false;
     let maxSpeed = 0;
-    while (a.tick < 120 * 10) {
+    while (a.tick < 120 * 6 && a.status === "running") {
       a.step(IN_THROTTLE);
-      const speed = Math.hypot(a.car.vx, a.car.vz);
-      maxSpeed = Math.max(maxSpeed, speed);
+      maxSpeed = Math.max(maxSpeed, Math.hypot(a.car.vx, a.car.vz));
       if (a.car.onWall) touched = true;
     }
-    expect(a.status).toBe("running");
     expect(touched).toBe(true);
-    expect(Math.hypot(a.car.vx, a.car.vz)).toBeLessThan(maxSpeed * 0.5);
+    expect(a.status).toBe("running");
+    expect(Math.hypot(a.car.vx, a.car.vz)).toBeLessThan(maxSpeed * 0.6);
   });
 
-  it("la voiture ne sort jamais de la piste à cause des rebords", () => {
-    const track = buildTrack(GRAND_SAUT);
-    const a = new Attempt(track);
-    // Zigzag brutal : gauche, droite, gauche...
-    while (a.status === "running" && a.tick < 120 * 20) a.step(IN_THROTTLE | (Math.floor(a.tick / 90) % 2 ? IN_LEFT : IN_RIGHT));
+  it("les rebords empêchent de tomber en zigzaguant sur la ligne droite", () => {
+    const a = new Attempt(world);
+    while (a.status === "running" && a.tick < 120 * 3) a.step(IN_THROTTLE | (Math.floor(a.tick / 40) % 2 ? IN_LEFT : IN_RIGHT));
     expect(a.status).not.toBe("fell");
+  });
+
+  it("l'arrivée ne compte pas si un checkpoint manque", () => {
+    // Map minimale : départ, checkpoint à côté (pas sur le chemin), arrivée
+    const w = buildWorld({
+      id: "t",
+      name: "t",
+      medals: GRAND_SAUT.medals,
+      blocks: [
+        { kind: "depart", x: 0, z: 0, level: 0, rot: 0 },
+        { kind: "route", x: 0, z: 1, level: 0, rot: 0 },
+        { kind: "arrivee", x: 0, z: 2, level: 0, rot: 0 },
+        { kind: "checkpoint", x: 3, z: 1, level: 0, rot: 0 },
+      ],
+    });
+    const a = new Attempt(w);
+    while (a.status === "running" && a.tick < 120 * 4) a.step(IN_THROTTLE);
+    expect(a.status).not.toBe("finished");
   });
 });

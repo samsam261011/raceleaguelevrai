@@ -2,12 +2,17 @@ import * as THREE from "three";
 
 export interface CarMesh {
   root: THREE.Group;
+  /** La caisse (penche un peu en montée et en descente, jamais sur le côté). */
+  body: THREE.Group;
   wheels: THREE.Mesh[];
+  /** Pivots des roues avant : ils tournent avec le volant. */
+  steerPivots: THREE.Group[];
   /** Matériaux transparents du fantôme (pour le faire apparaître ou s'effacer). */
   fade: { mat: THREE.Material & { opacity: number }; base: number }[];
 }
 
 const SCALE = 1.35;
+const rimMat = new THREE.MeshLambertMaterial({ color: 0xc9ccd4, flatShading: true });
 
 /** Voiture low-poly. Elle regarde vers +z. */
 export function buildCarMesh(color: number): CarMesh {
@@ -46,27 +51,39 @@ function build(body: THREE.Material, dark: THREE.Material, light: THREE.Material
     return m;
   };
 
-  add(new THREE.BoxGeometry(2.1, 0.7, 4.3), body, 0, 0.75, 0);
-  add(new THREE.BoxGeometry(1.9, 0.35, 1.2), body, 0, 0.55, 2.4);
-  add(new THREE.BoxGeometry(1.6, 0.65, 1.8), dark, 0, 1.4, -0.3);
-  add(new THREE.BoxGeometry(2.3, 0.12, 0.5), body, 0, 1.45, -2.1);
-  add(new THREE.BoxGeometry(0.12, 0.45, 0.4), dark, -0.8, 1.2, -2.1);
-  add(new THREE.BoxGeometry(0.12, 0.45, 0.4), dark, 0.8, 1.2, -2.1);
-  if (!edges) for (const x of [-0.6, 0.6]) add(new THREE.BoxGeometry(0.45, 0.18, 0.1), light, x, 0.8, 2.16);
+  // Caisse étroite à l'avant (museau) : les roues avant sont à l'air libre et visibles depuis la caméra
+  add(new THREE.BoxGeometry(1.7, 0.7, 3.0), body, 0, 0.75, -0.65);
+  add(new THREE.BoxGeometry(1.05, 0.5, 1.9), body, 0, 0.65, 1.75);
+  add(new THREE.BoxGeometry(2.0, 0.12, 0.55), body, 0, 0.42, 2.55);
+  add(new THREE.BoxGeometry(1.2, 0.5, 1.6), body, 0, 1.33, -0.7);
+  add(new THREE.BoxGeometry(1.0, 0.32, 0.08), dark, 0, 1.36, 0.12);
+  add(new THREE.BoxGeometry(2.1, 0.12, 0.5), body, 0, 1.3, -2.1);
+  add(new THREE.BoxGeometry(0.12, 0.3, 0.4), dark, -0.7, 1.1, -2.1);
+  add(new THREE.BoxGeometry(0.12, 0.3, 0.4), dark, 0.7, 1.1, -2.1);
+  if (!edges) for (const x of [-0.3, 0.3]) add(new THREE.BoxGeometry(0.3, 0.14, 0.1), light, x, 0.72, 2.71);
 
+  // Roues larges qui dépassent de la caisse : on voit les roues avant tourner depuis la caméra
   const wheels: THREE.Mesh[] = [];
-  const wheelGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.5, 10);
+  const steerPivots: THREE.Group[] = [];
+  const wheelGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.62, 12);
   wheelGeo.rotateZ(Math.PI / 2);
-  for (const [x, z] of [[-1.1, 1.45], [1.1, 1.45], [-1.1, -1.45], [1.1, -1.45]] as const) {
+  const rimGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.64, 8);
+  rimGeo.rotateZ(Math.PI / 2);
+  for (const [x, z, front] of [[-1.5, 1.5, true], [1.5, 1.5, true], [-1.35, -1.5, false], [1.35, -1.5, false]] as const) {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, 0.55, z);
     const w = new THREE.Mesh(wheelGeo, dark);
-    w.position.set(x, 0.5, z);
-    car.add(w);
+    const rim = new THREE.Mesh(rimGeo, edges ? dark : rimMat);
+    w.add(rim);
+    pivot.add(w);
+    car.add(pivot);
     wheels.push(w);
+    if (front) steerPivots.push(pivot);
   }
 
   const fade: CarMesh["fade"] = [];
   for (const m of [body, dark, edges]) {
     if (m && m.transparent) fade.push({ mat: m, base: m.opacity });
   }
-  return { root, wheels, fade };
+  return { root, body: car, wheels, steerPivots, fade };
 }

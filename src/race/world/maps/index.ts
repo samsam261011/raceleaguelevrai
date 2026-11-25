@@ -1,7 +1,7 @@
-import type { MapDefinition } from "../types";
+import type { MapDefinition } from "../world";
 import { GRAND_SAUT } from "./grandSaut";
 
-/** Les maps jouables. Les 19 autres maps du menu arriveront ici au fur et à mesure. */
+/** Les maps officielles jouables. Les autres arriveront ici au fur et à mesure (faites avec l'éditeur). */
 export const MAPS: Record<string, MapDefinition> = {
   [GRAND_SAUT.id]: GRAND_SAUT,
 };

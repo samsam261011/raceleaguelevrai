@@ -1,36 +1,69 @@
-import type { CarState } from "../physics/car";
 import { dcos, dsin } from "../math/dmath";
+import type { CarState } from "../physics/car";
 import { IN_BRAKE, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "../physics/input";
-import type { Track } from "../track/types";
+import type { Route } from "../world/route";
 
 /**
- * Pilote automatique simple : vise un point devant sur la piste et accélère.
- * Sert aux tests (vérifier qu'une map est faisable) et à calibrer les médailles.
+ * Pilote automatique très simple qui suit le chemin normal de la map.
+ * Sert aux tests (la map est-elle faisable ?) et au mode développeur. Déterministe.
  */
-export function autopilot(car: CarState, track: Track, lookahead = 14, maxSpeedInTurn = 34): number {
-  let target = car.trackIndex;
-  const goal = car.along + lookahead;
-  while (target < track.count - 1 && track.dist[target]! < goal) target++;
-  const dx = track.px[target]! - car.x;
-  const dz = track.pz[target]! - car.z;
-  const fx = dsin(car.heading);
-  const fz = dcos(car.heading);
-  // Produit vectoriel : > 0 si la cible est à droite (vue de derrière)
-  const cross = fx * dz - fz * dx;
-  const dot = fx * dx + fz * dz;
-  const len = Math.sqrt(dx * dx + dz * dz) || 1;
-  const side = cross / len;
-  let bits = 0;
-  if (side > 0.04) bits |= IN_RIGHT;
-  else if (side < -0.04) bits |= IN_LEFT;
+export function makeAutopilot(route: Route, lookahead = 14, maxSpeedInTurn = 34): (car: CarState) => number {
+  let idx = 0;
+  const n = route.px.length;
+  return (car) => {
+    // Point du chemin le plus proche, en avançant seulement
+    let bestD = Infinity;
+    for (let i = idx; i < Math.min(n, idx + 60); i++) {
+      const dx = route.px[i]! - car.x;
+      const dz = route.pz[i]! - car.z;
+      const d = dx * dx + dz * dz;
+      if (d < bestD) {
+        bestD = d;
+        idx = i;
+      }
+    }
+    // Position projetée sur le segment courant, pour viser à distance constante
+    let along = route.dist[idx]!;
+    if (idx < n - 1) {
+      const sx = route.px[idx + 1]! - route.px[idx]!;
+      const sz = route.pz[idx + 1]! - route.pz[idx]!;
+      const L = route.dist[idx + 1]! - route.dist[idx]!;
+      const t = ((car.x - route.px[idx]!) * sx + (car.z - route.pz[idx]!) * sz) / (L * L);
+      if (t > 0) along += Math.min(1, t) * L;
+    }
+    const goal = along + lookahead;
+    let target = idx;
+    while (target < n - 1 && route.dist[target]! < goal) target++;
+    const dx = route.px[target]! - car.x;
+    const dz = route.pz[target]! - car.z;
+    const fx = dsin(car.heading);
+    const fz = dcos(car.heading);
+    const cross = fx * dz - fz * dx;
+    const dot = fx * dx + fz * dz;
+    const len = Math.sqrt(dx * dx + dz * dz) || 1;
+    const side = cross / len;
+    let bits = 0;
+    if (side > 0.04) bits |= IN_RIGHT;
+    else if (side < -0.04) bits |= IN_LEFT;
 
-  // Courbure à venir : on ralentit si la piste tourne beaucoup plus loin
-  let far = target;
-  while (far < track.count - 1 && track.dist[far]! < goal + 40) far++;
-  const turn = 1 - (track.tx[target]! * track.tx[far]! + track.tz[target]! * track.tz[far]!);
-  const speed = car.vx * fx + car.vz * fz;
-  const limit = turn > 0.25 ? maxSpeedInTurn : turn > 0.1 ? maxSpeedInTurn + 10 : 99;
-  if (speed > limit + 2 && dot > 0) bits |= IN_BRAKE;
-  else if (speed < limit) bits |= IN_THROTTLE;
-  return bits;
+    // Virage à venir : on ralentit si le chemin tourne beaucoup plus loin
+    let far = target;
+    while (far < n - 1 && route.dist[far]! < goal + 35) far++;
+    const dir = (i: number) => {
+      const j = Math.min(n - 1, i + 1);
+      const k = j === i ? i - 1 : i;
+      const ax = route.px[j]! - route.px[k]!;
+      const az = route.pz[j]! - route.pz[k]!;
+      const l = Math.sqrt(ax * ax + az * az) || 1;
+      return [ax / l, az / l] as const;
+    };
+    const [t1x, t1z] = dir(target);
+    const [t2x, t2z] = dir(far);
+    const turn = 1 - (t1x * t2x + t1z * t2z);
+    const speed = car.vx * fx + car.vz * fz;
+    const limit = turn > 0.6 ? maxSpeedInTurn * 0.55 : turn > 0.25 ? maxSpeedInTurn : turn > 0.1 ? maxSpeedInTurn + 12 : 999;
+    if (speed > limit + 2 && dot > 0) bits |= IN_BRAKE;
+    else if (speed < limit) bits |= IN_THROTTLE;
+    return bits;
+  };
 }

@@ -1,13 +1,14 @@
 import * as THREE from "three";
 import "./editor.css";
 import { buildSky } from "../race/render/environment";
-import { buildTrackMesh, gate } from "../race/render/trackMesh";
+import { buildPieceMesh, buildWorldMesh, placeBlock } from "../race/render/blockMesh";
+import { buildGround } from "../race/render/environment";
 import { formatTime } from "../race/session/session";
-import { buildTrack } from "../race/track/build";
-import { decodeMap, encodeMap } from "./code";
+import { customMapId, decodeMap, encodeMap, type EditorMap } from "../race/world/code";
+import { MAX_LEVEL, PALETTE, PIECES, STEP, TILE, type PieceKind } from "../race/world/pieces";
+import { findRoute } from "../race/world/route";
+import { blockCells, blocksOverlap, buildWorld, GROUND_Y, validateMap, type Block } from "../race/world/world";
 import { exampleMap } from "./examples";
-import { customMapId, overlaps, tileCells, walk, type EditorMap, type Tile, type WalkResult } from "./layout";
-import { LEVEL_H, MAX_LEVEL, PALETTE, PIECES, SIDE_DIR, TILE, type PieceKind } from "./pieces";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const CURRENT_KEY = "raceleague.editor.current";
@@ -32,10 +33,10 @@ const store = {
 
 // ---------- État ----------
 let map: EditorMap = loadInitialMap();
-let tool: PieceKind | "gomme" = "droite";
+let tool: PieceKind | "gomme" = "route";
 let rot = 0;
 let level = 0;
-let result: WalkResult = walk(map);
+let problem: string | null = validateMap(map.blocks);
 const undoStack: string[] = [];
 
 function loadInitialMap(): EditorMap {
@@ -60,10 +61,7 @@ buildSky(scene);
 scene.fog = new THREE.Fog(0xcfe6f5, 900, 3000); // vue de haut : brouillard plus loin qu'en course
 const camera = new THREE.PerspectiveCamera(50, 1, 1, 4000);
 
-const ground = new THREE.Mesh(new THREE.CircleGeometry(3000, 48), new THREE.MeshLambertMaterial({ color: 0x7cbf4e }));
-ground.rotation.x = -Math.PI / 2;
-ground.position.y = -34;
-scene.add(ground);
+scene.add(buildGround(GROUND_Y));
 
 // Grille : un plan texturé (les lignes fines de WebGL disparaissent sur certains appareils)
 const GRID_Y = -0.3; // juste sous la surface des pièces, pour ne pas dessiner par-dessus la route
@@ -92,46 +90,12 @@ const tilesGroup = new THREE.Group();
 scene.add(tilesGroup);
 
 // ---------- Modèles 3D des pièces ----------
-const templates = new Map<PieceKind, THREE.Object3D>();
 const previews = new Map<PieceKind, THREE.Object3D>();
-
-function buildTemplate(kind: PieceKind): THREE.Object3D {
-  const def = PIECES[kind];
-  const g = new THREE.Group();
-  const track = buildTrack({
-    id: "piece",
-    name: "piece",
-    points: def.path.map((p) => ({ ...p })),
-    checkpoints: [],
-    medals: { auteur: 0, or: 0, argent: 0, bronze: 0 },
-  });
-  if (def.gap) {
-    // Le vide : juste un cadre pointillé pour voir où il est
-    const box = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(22, 0.2, TILE)),
-      new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 2, gapSize: 1.5 }),
-    );
-    box.computeLineDistances();
-    g.add(box);
-  } else {
-    g.add(buildTrackMesh(track, { gates: false }));
-  }
-  if (def.gate === "start") g.add(gate(track, 2, "start"));
-  if (def.gate === "finish") g.add(gate(track, track.count - 2, "finish"));
-  if (def.gate === "checkpoint") g.add(gate(track, Math.floor(track.count / 2), "checkpoint"));
-  return g;
-}
-
-function template(kind: PieceKind): THREE.Object3D {
-  let t = templates.get(kind);
-  if (!t) templates.set(kind, (t = buildTemplate(kind)));
-  return t;
-}
 
 function preview(kind: PieceKind): THREE.Object3D {
   let p = previews.get(kind);
   if (!p) {
-    p = template(kind).clone(true);
+    p = buildPieceMesh(kind);
     p.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.material) {
@@ -148,8 +112,7 @@ function preview(kind: PieceKind): THREE.Object3D {
 }
 
 function place(obj: THREE.Object3D, t: { x: number; z: number; level: number; rot: number }): void {
-  obj.position.set(t.x * TILE, t.level * LEVEL_H, t.z * TILE);
-  obj.rotation.y = (t.rot * Math.PI) / 2;
+  placeBlock(obj, t);
 }
 
 // Aperçu de la pièce sous la souris
@@ -158,21 +121,10 @@ const eraseMat = new THREE.MeshBasicMaterial({ color: 0xff4a3d, transparent: tru
 const eraseMarks = new THREE.Group();
 scene.add(eraseMarks);
 
-// Flèche rouge là où le circuit s'arrête
-const errorMark = new THREE.Mesh(new THREE.ConeGeometry(3, 7, 4), new THREE.MeshLambertMaterial({ color: 0xff4a3d, emissive: 0x661010 }));
-errorMark.rotation.x = Math.PI;
-errorMark.visible = false;
-scene.add(errorMark);
-let errorBaseY = 0;
-
 // ---------- Mise à jour ----------
 function rebuildTiles(): void {
   tilesGroup.clear();
-  for (const t of map.tiles) {
-    const o = template(t.kind).clone(true);
-    place(o, t);
-    tilesGroup.add(o);
-  }
+  tilesGroup.add(buildWorldMesh(buildWorld({ id: "editeur", name: "", blocks: map.blocks, medals: { auteur: 0, or: 0, argent: 0, bronze: 0 } })));
 }
 
 function readBest(id: string): number | null {
@@ -181,29 +133,25 @@ function readBest(id: string): number | null {
 }
 
 function refresh(): void {
-  map.authorTime = readBest(customMapId(map));
-  result = walk(map, customMapId(map));
+  map.authorTime = readBest(customMapId(map.blocks));
+  problem = validateMap(map.blocks);
   rebuildTiles();
   const status = $("status");
-  status.classList.toggle("ok", result.ok);
-  if (result.ok) {
+  status.classList.toggle("ok", !problem);
+  if (!problem) {
     const auteur = map.authorTime ? `temps auteur ${formatTime(map.authorTime)}` : "pas encore de temps auteur";
-    status.textContent = `Circuit prêt · ${Math.round(result.length)} m · ${auteur}`;
+    const route = findRoute(map.blocks);
+    const size = route ? `${Math.round(route.length)} m` : `${map.blocks.length} pièces`;
+    status.textContent = `Prêt · ${size} · ${auteur}`;
   } else {
-    status.textContent = result.error;
+    status.textContent = problem;
   }
-  ($("testBtn") as HTMLButtonElement).disabled = !result.ok;
-  if (!result.ok && result.at) {
-    const [dx, dz] = SIDE_DIR[result.at.side]!;
-    errorMark.position.set(result.at.x * TILE + (dx * TILE) / 2, result.at.level * LEVEL_H + 6, result.at.z * TILE + (dz * TILE) / 2);
-    errorBaseY = errorMark.position.y;
-    errorMark.visible = true;
-  } else errorMark.visible = false;
+  ($("testBtn") as HTMLButtonElement).disabled = !!problem;
   store.set(CURRENT_KEY, encodeMap(map));
 }
 
 function change(fn: () => void): void {
-  undoStack.push(JSON.stringify(map.tiles));
+  undoStack.push(JSON.stringify(map.blocks));
   if (undoStack.length > 200) undoStack.shift();
   fn();
   refresh();
@@ -213,7 +161,7 @@ function change(fn: () => void): void {
 function undo(): void {
   const prev = undoStack.pop();
   if (!prev) return;
-  map.tiles = JSON.parse(prev) as Tile[];
+  map.blocks = JSON.parse(prev) as Block[];
   refresh();
   updateHover();
 }
@@ -227,7 +175,7 @@ const PITCH = 0.95;
 
 function updateCamera(dt: number): void {
   yaw += (yawGoal - yaw) * (1 - Math.exp(-dt * 10));
-  const ty = level * LEVEL_H;
+  const ty = level * STEP;
   target.y += (ty - target.y) * (1 - Math.exp(-dt * 8));
   const h = Math.cos(PITCH) * dist;
   camera.position.set(target.x + Math.sin(yaw) * h, target.y + Math.sin(PITCH) * dist, target.z + Math.cos(yaw) * h);
@@ -247,10 +195,10 @@ function pan(dx: number, dy: number): void {
 
 /** Cadre la caméra sur tout le circuit. */
 function frameMap(): void {
-  if (map.tiles.length === 0) return;
+  if (map.blocks.length === 0) return;
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-  for (const t of map.tiles)
-    for (const [x, z] of tileCells(t)) {
+  for (const t of map.blocks)
+    for (const [x, z] of blockCells(t)) {
       x0 = Math.min(x0, x); x1 = Math.max(x1, x);
       z0 = Math.min(z0, z); z1 = Math.max(z1, z);
     }
@@ -284,17 +232,21 @@ function cellAt(x: number, y: number): [number, number] | null {
   const r = canvas.getBoundingClientRect();
   ray.setFromCamera(new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1), camera);
   const hit = new THREE.Vector3();
-  if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -level * LEVEL_H), hit)) return null;
+  if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -level * STEP), hit)) return null;
   return [Math.round(hit.x / TILE), Math.round(hit.z / TILE)];
 }
 
-function tilesAt(cell: [number, number]): number[] {
-  const out: number[] = [];
-  map.tiles.forEach((t, i) => {
-    if (t.level !== level) return;
-    if (tileCells(t).some(([x, z]) => x === cell[0] && z === cell[1])) out.push(i);
-  });
-  return out;
+/** Pièce sous la souris (n'importe quelle hauteur), sinon pièce de la case à la hauteur choisie. */
+function blockUnder(x: number, y: number, cell: [number, number] | null): number {
+  const r = canvas.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1), camera);
+  for (const h of ray.intersectObject(tilesGroup, true)) {
+    let o: THREE.Object3D | null = h.object;
+    while (o && o.userData.block === undefined) o = o.parent;
+    if (o) return o.userData.block as number;
+  }
+  if (!cell) return -1;
+  return map.blocks.findIndex((t) => t.level === level && blockCells(t).some(([cx, cz]) => cx === cell[0] && cz === cell[1]));
 }
 
 function updateHover(): void {
@@ -303,17 +255,14 @@ function updateHover(): void {
   eraseMarks.clear();
   if (!hoverCell) return;
   if (tool === "gomme") {
-    for (const i of tilesAt(hoverCell)) {
-      for (const [x, z] of tileCells(map.tiles[i]!)) {
+    const i = lastPointer ? blockUnder(lastPointer.x, lastPointer.y, hoverCell) : -1;
+    const b = map.blocks[i];
+    if (b) {
+      for (const [x, z] of blockCells(b)) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(TILE - 1, 3, TILE - 1), eraseMat);
-        m.position.set(x * TILE, level * LEVEL_H + 1.5, z * TILE);
+        m.position.set(x * TILE, b.level * STEP + 1.2, z * TILE);
         eraseMarks.add(m);
       }
-    }
-    if (eraseMarks.children.length === 0) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(TILE - 1, 0.4, TILE - 1), eraseMat);
-      m.position.set(hoverCell[0] * TILE, level * LEVEL_H, hoverCell[1] * TILE);
-      eraseMarks.add(m);
     }
     return;
   }
@@ -322,18 +271,18 @@ function updateHover(): void {
   scene.add(ghost);
 }
 
-function act(cell: [number, number], erase: boolean): void {
+function act(cell: [number, number], erase: boolean, px: number, py: number): void {
   if (erase || tool === "gomme") {
-    const hit = tilesAt(cell);
-    if (hit.length) change(() => (map.tiles = map.tiles.filter((_, i) => !hit.includes(i))));
+    const i = blockUnder(px, py, cell);
+    if (i >= 0) change(() => map.blocks.splice(i, 1));
     return;
   }
-  const t: Tile = { kind: tool, x: cell[0], z: cell[1], level, rot };
-  const same = map.tiles.find((o) => o.kind === t.kind && o.x === t.x && o.z === t.z && o.level === t.level && o.rot === t.rot);
+  const t: Block = { kind: tool, x: cell[0], z: cell[1], level, rot };
+  const same = map.blocks.find((o) => o.kind === t.kind && o.x === t.x && o.z === t.z && o.level === t.level && o.rot === t.rot);
   if (same) return;
   change(() => {
-    map.tiles = map.tiles.filter((o) => !overlaps(o, t) && !(t.kind === "depart" && o.kind === "depart"));
-    map.tiles.push(t);
+    map.blocks = map.blocks.filter((o) => !blocksOverlap(o, t) && !(t.kind === "depart" && o.kind === "depart"));
+    map.blocks.push(t);
   });
 }
 
@@ -381,7 +330,7 @@ const endPointer = (e: PointerEvent) => {
   pointers.delete(e.pointerId);
   if (!p || p.moved || e.type === "pointercancel") return;
   const c = cellAt(e.clientX, e.clientY);
-  if (c) act(c, p.button === 2);
+  if (c) act(c, p.button === 2, e.clientX, e.clientY);
 };
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
@@ -401,16 +350,21 @@ canvas.addEventListener(
 );
 
 // ---------- Palette et outils ----------
+const ROAD = "#5d6169";
 const GLYPHS: Record<PieceKind, string> = {
-  depart: '<rect x="12" y="4" width="16" height="32" rx="2" fill="#5d6169"/><path d="M12 14h16v5H12z" fill="#fff"/><path d="M12 14h4v5h-4zM20 14h4v5h-4z" fill="#14101f"/><path d="M20 34v-9m-4 4 4-4 4 4" stroke="#ffb23e" stroke-width="2.2" fill="none" stroke-linecap="round"/>',
-  droite: '<rect x="12" y="4" width="16" height="32" rx="2" fill="#5d6169"/><path d="M12 4v32M28 4v32" stroke="#e0393b" stroke-width="2" stroke-dasharray="4 3"/>',
-  virage: '<path d="M14 36V30A10 10 0 0 1 24 20h12" stroke="#5d6169" stroke-width="16" fill="none"/>',
-  grandVirage: '<path d="M10 38V28A18 18 0 0 1 28 10h10" stroke="#5d6169" stroke-width="11" fill="none"/>',
-  pente: '<path d="M4 32h10l14-14h8v14z" fill="#5d6169"/><path d="M14 26l8-8m0 0h-5m5 0v5" stroke="#ffb23e" stroke-width="2" fill="none" stroke-linecap="round"/>',
-  tremplin: '<path d="M4 32h12q10 0 16-12v12z" fill="#5d6169"/><path d="M34 14q2-4 4-5" stroke="#ffb23e" stroke-width="2" fill="none" stroke-linecap="round" stroke-dasharray="2 3"/>',
-  vide: '<rect x="8" y="6" width="24" height="28" rx="2" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="4 3"/>',
-  checkpoint: '<rect x="12" y="4" width="16" height="32" rx="2" fill="#5d6169"/><path d="M8 20h24" stroke="#ffb23e" stroke-width="4"/><path d="M9 14v12M31 14v12" stroke="#ffb23e" stroke-width="3"/>',
-  arrivee: '<rect x="12" y="4" width="16" height="32" rx="2" fill="#5d6169"/><path d="M12 8h16v8H12z" fill="#fff"/><path d="M12 8h4v4h-4zM20 8h4v4h-4zM16 12h4v4h-4zM24 12h4v4h-4z" fill="#14101f"/>',
+  depart: `<rect x="12" y="4" width="16" height="32" rx="2" fill="${ROAD}"/><path d="M12 14h16v5H12z" fill="#fff"/><path d="M12 14h4v5h-4zM20 14h4v5h-4z" fill="#14101f"/><path d="M20 34v-9m-4 4 4-4 4 4" stroke="#ffb23e" stroke-width="2.2" fill="none" stroke-linecap="round"/>`,
+  route: `<rect x="12" y="4" width="16" height="32" rx="2" fill="${ROAD}"/><path d="M12 4v32M28 4v32" stroke="#e0393b" stroke-width="2" stroke-dasharray="4 3"/><path d="M20 6v6m0 4v6m0 4v6" stroke="#fff" stroke-width="1.5"/>`,
+  virage: `<path d="M12 38V32A8 8 0 0 1 20 24h18" stroke="${ROAD}" stroke-width="15" fill="none"/>`,
+  virage2: `<path d="M10 38V30A14 14 0 0 1 24 16h14" stroke="${ROAD}" stroke-width="11" fill="none"/>`,
+  virage3: `<path d="M8 38V28A20 20 0 0 1 28 8h10" stroke="${ROAD}" stroke-width="8" fill="none"/>`,
+  pente: `<path d="M4 32h10l14-10h8v10z" fill="${ROAD}"/><path d="M14 26l6-5m0 0h-4m4 0v4" stroke="#ffb23e" stroke-width="2" fill="none" stroke-linecap="round"/>`,
+  penteRaide: `<path d="M4 34h8l16-22h8v22z" fill="${ROAD}"/><path d="M13 28l7-9m0 0h-4m4 0v4" stroke="#ffb23e" stroke-width="2" fill="none" stroke-linecap="round"/>`,
+  tremplin: `<path d="M4 32h12q10 0 16-12v12z" fill="${ROAD}"/><path d="M34 14q2-4 4-5" stroke="#ffb23e" stroke-width="2" fill="none" stroke-linecap="round" stroke-dasharray="2 3"/>`,
+  plaque: `<rect x="6" y="6" width="28" height="28" rx="2" fill="#b9bcc2"/><path d="M20 6v28M6 20h28" stroke="#8d9097" stroke-width="1.5"/>`,
+  plaquePente: `<path d="M4 32h10l14-10h8v10z" fill="#b9bcc2"/>`,
+  booster: `<rect x="8" y="4" width="24" height="32" rx="2" fill="#1e2a4a"/><path d="M12 22l8-6 8 6v4l-8-6-8 6zM12 32l8-6 8 6v-4l-8-6-8 6z" fill="#35e0ff"/>`,
+  checkpoint: `<rect x="12" y="4" width="16" height="32" rx="2" fill="${ROAD}"/><path d="M8 20h24" stroke="#ffb23e" stroke-width="4"/><path d="M9 14v12M31 14v12" stroke="#ffb23e" stroke-width="3"/>`,
+  arrivee: `<rect x="12" y="4" width="16" height="32" rx="2" fill="${ROAD}"/><path d="M12 8h16v8H12z" fill="#fff"/><path d="M12 8h4v4h-4zM20 8h4v4h-4zM16 12h4v4h-4zM24 12h4v4h-4z" fill="#14101f"/>`,
 };
 
 const palette = $("palette");
@@ -418,8 +372,9 @@ PALETTE.forEach((kind, i) => {
   const b = document.createElement("button");
   b.className = "piece";
   b.dataset.kind = kind;
-  b.title = `${PIECES[kind].label} (${i + 1})`;
-  b.innerHTML = `<kbd>${i + 1}</kbd><svg viewBox="0 0 40 40" aria-hidden="true">${GLYPHS[kind]}</svg>${PIECES[kind].label}`;
+  const key = i < 9 ? String(i + 1) : "";
+  b.title = key ? `${PIECES[kind].label} (${key})` : PIECES[kind].label;
+  b.innerHTML = `${key ? `<kbd>${key}</kbd>` : ""}<svg viewBox="0 0 40 40" aria-hidden="true">${GLYPHS[kind]}</svg>${PIECES[kind].label}`;
   b.addEventListener("click", () => setTool(kind));
   palette.appendChild(b);
 });
@@ -439,13 +394,13 @@ function rotate(dir = 1): void {
 function setLevel(l: number): void {
   level = Math.max(0, Math.min(MAX_LEVEL, l));
   $("lvl").textContent = String(level);
-  grid.position.y = level * LEVEL_H + GRID_Y;
+  grid.position.y = level * STEP + GRID_Y;
   if (lastPointer) hoverCell = cellAt(lastPointer.x, lastPointer.y);
   updateHover();
 }
 
 $("rotBtn").addEventListener("click", () => rotate(1));
-$("eraseBtn").addEventListener("click", () => setTool(tool === "gomme" ? "droite" : "gomme"));
+$("eraseBtn").addEventListener("click", () => setTool(tool === "gomme" ? "route" : "gomme"));
 $("lvlUp").addEventListener("click", () => setLevel(level + 1));
 $("lvlDown").addEventListener("click", () => setLevel(level - 1));
 $("undoBtn").addEventListener("click", undo);
@@ -460,7 +415,7 @@ nameInput.addEventListener("input", () => {
 
 $("backBtn").addEventListener("click", () => (location.href = "./"));
 $("testBtn").addEventListener("click", () => {
-  if (!result.ok) return;
+  if (problem) return;
   store.set(CURRENT_KEY, encodeMap(map));
   location.href = `./race.html?editeur&code=${encodeURIComponent(encodeMap(map))}`;
 });
@@ -478,9 +433,9 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   const n = Number(e.key);
-  if (n >= 1 && n <= PALETTE.length) setTool(PALETTE[n - 1]!);
+  if (n >= 1 && n <= 9) setTool(PALETTE[n - 1]!);
   else if (e.code === "KeyR") rotate(e.shiftKey ? -1 : 1);
-  else if (e.code === "KeyX" || e.code === "Delete") setTool(tool === "gomme" ? "droite" : "gomme");
+  else if (e.code === "KeyX" || e.code === "Delete") setTool(tool === "gomme" ? "route" : "gomme");
   else if (e.code === "KeyQ") yawGoal -= Math.PI / 2;
   else if (e.code === "KeyE") yawGoal += Math.PI / 2;
   else if (e.code === "PageUp") setLevel(level + 1);
@@ -489,7 +444,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.code === "ArrowRight") pan(-60, 0);
   else if (e.code === "ArrowUp") pan(0, 60);
   else if (e.code === "ArrowDown") pan(0, -60);
-  else if (e.code === "Escape") setTool("droite");
+  else if (e.code === "Escape") setTool("route");
   else return;
   e.preventDefault();
 });
@@ -548,7 +503,7 @@ function closeCode(): void {
 }
 
 function setMap(m: EditorMap): void {
-  undoStack.push(JSON.stringify(map.tiles));
+  undoStack.push(JSON.stringify(map.blocks));
   map = m;
   nameInput.value = map.name;
   frameMap();
@@ -599,7 +554,7 @@ $("saveBtn").addEventListener("click", () => {
   toast("Circuit enregistré");
 });
 $("newBtn").addEventListener("click", () => {
-  setMap({ name: "Nouveau circuit", authorTime: null, tiles: [{ kind: "depart", x: 0, z: 0, level: 0, rot: 0 }] });
+  setMap({ name: "Nouveau circuit", authorTime: null, blocks: [{ kind: "depart", x: 0, z: 0, level: 0, rot: 0 }] });
   closeCode();
 });
 $("exampleBtn").addEventListener("click", () => {
@@ -608,7 +563,7 @@ $("exampleBtn").addEventListener("click", () => {
 });
 
 // ---------- Boucle ----------
-setTool("droite");
+setTool("route");
 setLevel(0);
 frameMap();
 refresh();
@@ -617,6 +572,5 @@ renderer.setAnimationLoop((now) => {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   updateCamera(dt);
-  if (errorMark.visible) errorMark.position.y = errorBaseY + Math.sin(now / 200) * 1.2;
   renderer.render(scene, camera);
 });

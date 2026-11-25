@@ -1,10 +1,12 @@
 import * as THREE from "three";
 import type { CarState } from "../physics/car";
 import { formatTime } from "../session/session";
-import type { Track } from "../track/types";
+import { VMAX } from "../physics/constants";
+import type { World } from "../world/world";
+import { buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
 import { buildEnvironment } from "./environment";
-import { buildTrackMesh } from "./trackMesh";
+import { SpeedLines } from "./speedLines";
 
 /** La scène 3D : piste, voiture, fantôme et caméra de poursuite. Uniquement de l'affichage. */
 export class RaceView {
@@ -15,18 +17,21 @@ export class RaceView {
   private readonly ghost: CarMesh;
   private readonly ghostLabel: THREE.Sprite;
   private ghostLabelTime: number | null = null;
-  private readonly camPos = new THREE.Vector3();
-  private readonly camLook = new THREE.Vector3();
+  private camYaw = 0;
+  private camY = 0;
   private camReady = false;
+  private shakeT = 0;
+  private readonly speedLines: SpeedLines | null;
   private wheelSpin = 0;
   private ghostSpin = 0;
 
-  constructor(canvas: HTMLCanvasElement, track: Track) {
+  constructor(canvas: HTMLCanvasElement, world: World, fx: HTMLCanvasElement | null = null) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    buildEnvironment(this.scene, track);
-    this.scene.add(buildTrackMesh(track));
+    buildEnvironment(this.scene, world);
+    this.scene.add(buildWorldMesh(world));
+    this.speedLines = fx ? new SpeedLines(fx) : null;
     this.car = buildCarMesh(0xffb23e);
     this.ghost = buildGhostMesh();
     this.ghostLabel = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, depthTest: false }));
@@ -45,6 +50,7 @@ export class RaceView {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.speedLines?.resize(w, h);
   }
 
   /** Remet la caméra derrière la voiture (au début d'un essai). */
@@ -53,14 +59,14 @@ export class RaceView {
   }
 
   render(prev: CarState, cur: CarState, alpha: number, ghost: { prev: CarState; cur: CarState; time: number } | null, dt: number): void {
-    placeCar(this.car, prev, cur, alpha);
+    placeCar(this.car, prev, cur, alpha, dt);
     const speed = Math.hypot(cur.vx, cur.vz);
-    this.wheelSpin += speed * dt * 1.5;
+    this.wheelSpin += speed * dt * 1.8;
     for (const w of this.car.wheels) w.rotation.x = this.wheelSpin;
 
     if (ghost) {
       this.ghost.root.visible = true;
-      placeCar(this.ghost, ghost.prev, ghost.cur, alpha);
+      placeCar(this.ghost, ghost.prev, ghost.cur, alpha, dt);
       this.ghostSpin += Math.hypot(ghost.cur.vx, ghost.cur.vz) * dt * 1.5;
       for (const w of this.ghost.wheels) w.rotation.x = this.ghostSpin;
       if (this.ghostLabelTime !== ghost.time) this.setGhostLabel(ghost.time);
@@ -73,31 +79,39 @@ export class RaceView {
       this.ghost.root.visible = false;
     }
 
-    // Caméra de poursuite : proche, un peu au-dessus, qui regarde légèrement vers le bas
-    const yaw = this.car.root.rotation.y;
-    const fx = Math.sin(yaw);
-    const fz = Math.cos(yaw);
+    // Caméra de poursuite fixée derrière la voiture : la voiture reste au centre de l'écran,
+    // seule la rotation de la caméra suit avec un tout petit retard (sensation de virage).
     const p = this.car.root.position;
-    const back = 8.2 + speed * 0.03;
-    const desired = new THREE.Vector3(p.x - fx * back, p.y + 4.6, p.z - fz * back);
-    const look = new THREE.Vector3(p.x + fx * 7, p.y + 0.3, p.z + fz * 7);
+    const yaw = this.car.root.rotation.y;
     if (!this.camReady) {
-      this.camPos.copy(desired);
-      this.camLook.copy(look);
+      this.camYaw = yaw;
+      this.camY = p.y;
       this.camReady = true;
-    } else {
-      this.camPos.x += (desired.x - this.camPos.x) * (1 - Math.exp(-dt * 9));
-      this.camPos.z += (desired.z - this.camPos.z) * (1 - Math.exp(-dt * 9));
-      this.camPos.y += (desired.y - this.camPos.y) * (1 - Math.exp(-dt * 5));
-      this.camLook.lerp(look, 1 - Math.exp(-dt * 14));
     }
-    this.camera.position.copy(this.camPos);
-    this.camera.lookAt(this.camLook);
-    const fov = 60 + Math.min(speed, 60) * 0.15;
+    let dy = yaw - this.camYaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    this.camYaw += dy * (1 - Math.exp(-dt * 12));
+    this.camY += (p.y - this.camY) * (1 - Math.exp(-dt * 8));
+    const k = Math.min(1.3, speed / VMAX);
+    const fx = Math.sin(this.camYaw);
+    const fz = Math.cos(this.camYaw);
+    const back = 7.6 + k * 1.2;
+    const height = 4.1 - k * 0.6;
+    // Petite vibration à pleine vitesse
+    this.shakeT += dt;
+    const shake = Math.max(0, k - 0.75) * 0.09;
+    const sx = Math.sin(this.shakeT * 41) * shake;
+    const sy = Math.sin(this.shakeT * 53 + 1) * shake;
+    this.camera.position.set(p.x - fx * back + fz * sx, this.camY + height + sy, p.z - fz * back - fx * sx);
+    this.camera.lookAt(p.x + fx * 8, this.camY + 0.9, p.z + fz * 8);
+    // L'angle de vue s'élargit avec la vitesse
+    const fov = 64 + k * 20 + (cur.boosting ? 4 : 0);
     if (Math.abs(this.camera.fov - fov) > 0.05) {
-      this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-dt * 4));
+      this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-dt * 5));
       this.camera.updateProjectionMatrix();
     }
+    this.speedLines?.draw(k, cur.boosting, dt);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -138,11 +152,15 @@ function lerpAngle(a: number, b: number, t: number): number {
   return a + d * t;
 }
 
-function placeCar(mesh: CarMesh, a: CarState, b: CarState, t: number): void {
+function placeCar(mesh: CarMesh, a: CarState, b: CarState, t: number, dt: number): void {
   mesh.root.position.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
   mesh.root.rotation.y = lerpAngle(a.heading, b.heading, t);
+  // Tangage doux en montée et en descente ; jamais de roulis : la voiture reste à plat
   const speed = Math.hypot(b.vx, b.vz) || 1;
-  mesh.root.rotation.x = Math.max(-0.35, Math.min(0.35, -Math.atan2(b.vy, speed)));
-  // Légère inclinaison dans les virages (vers l'extérieur)
-  mesh.root.rotation.z = b.steer * 0.05 * Math.min(1, speed / 30);
+  const pitch = Math.max(-0.4, Math.min(0.4, -Math.atan2(b.vy, speed)));
+  mesh.root.rotation.x += (pitch - mesh.root.rotation.x) * (1 - Math.exp(-dt * 12));
+  mesh.root.rotation.z = 0;
+  // Roues avant braquées (bien visibles)
+  const steer = a.steer + (b.steer - a.steer) * t;
+  for (const p of mesh.steerPivots) p.rotation.y = -steer * 0.5;
 }

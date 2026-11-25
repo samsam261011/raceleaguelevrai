@@ -429,7 +429,7 @@ import { mountKeybindEditor } from "../shared/keybindEditor";
   {
     let pb = null;
     try { const v = localStorage.getItem("raceleague.best.grand-saut"); pb = v ? Number(v) : null; } catch (e) { pb = null; }
-    Object.assign(MAPDATA[0], { auteur: 20, or: 21, argent: 22.5, bronze: 25, mine: pb });
+    Object.assign(MAPDATA[0], { auteur: 10.8, or: 11.4, argent: 12.5, bronze: 14.5, mine: pb });
   }
   const ftime = (t) => { if (t == null) return "—"; const m = Math.floor(t / 60), sec = t - m * 60; return m + ":" + sec.toFixed(3).padStart(6, "0").replace(".", ","); };
   const medalOf = (d, t) => t == null ? null : t <= d.auteur ? "auteur" : t <= d.or ? "or" : t <= d.argent ? "argent" : t <= d.bronze ? "bronze" : null;

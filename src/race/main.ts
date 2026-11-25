@@ -7,12 +7,11 @@ import { IN_BRAKE, IN_DRIVE, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "./physics/in
 import { RaceView } from "./render/view";
 import { formatDelta, formatTime, medalFor, Session } from "./session/session";
 import { Attempt } from "./sim/attempt";
-import { autopilot } from "./sim/autopilot";
-import { buildTrack } from "./track/build";
-import { DEFAULT_MAP, MAPS } from "./track/maps";
-import type { MapDefinition } from "./track/types";
-import { decodeMap } from "../editor/code";
-import { customMapId, walk } from "../editor/layout";
+import { makeAutopilot } from "./sim/autopilot";
+import { customMapId, decodeMap } from "./world/code";
+import { DEFAULT_MAP, MAPS } from "./world/maps";
+import { findRoute } from "./world/route";
+import { buildWorld, medalsFrom, validateMap, type MapDefinition } from "./world/world";
 import { Hud } from "./ui/hud";
 
 /**
@@ -33,21 +32,24 @@ function customMap(code: string | null): MapDefinition | null {
   if (!code) return null;
   try {
     const m = decodeMap(code);
-    const r = walk(m, customMapId(m));
-    return r.ok ? r.def : null;
+    if (validateMap(m.blocks)) return null;
+    // Sans temps auteur, on estime les médailles d'après la longueur du chemin
+    const route = findRoute(m.blocks);
+    const estimate = Math.round(((route ? route.length : m.blocks.length * 20) / 45) * 10) / 10;
+    return { id: customMapId(m.blocks), name: m.name || "Sans nom", blocks: m.blocks, medals: medalsFrom(m.authorTime ?? estimate) };
   } catch {
     return null;
   }
 }
-const track = buildTrack(mapDef);
+const world = buildWorld(mapDef);
 document.title = `${mapDef.name} · RaceLeague`;
 $("mapName").textContent = mapDef.name;
 
 const hud = new Hud();
-const view = new RaceView($("scene") as HTMLCanvasElement, track);
+const view = new RaceView($("scene") as HTMLCanvasElement, world, $("speedfx") as HTMLCanvasElement);
 
 let session = new Session();
-let attempt = new Attempt(track);
+let attempt = new Attempt(world);
 let ghost: { attempt: Attempt; inputs: number[]; time: number } | null = null;
 let phase: Phase = "ready";
 let phaseTimer = 0;
@@ -118,9 +120,10 @@ function refreshBest(): void {
 
 /** Prépare un essai : la voiture attend sur la ligne, le chrono partira à la première touche. */
 function beginAttempt(): void {
-  attempt = new Attempt(track);
+  attempt = new Attempt(world);
+  if (devRoute) devPilot = makeAutopilot(devRoute);
   const best = session.best;
-  ghost = best && best.time !== null ? { attempt: new Attempt(track), inputs: best.inputs, time: best.time } : null;
+  ghost = best && best.time !== null ? { attempt: new Attempt(world), inputs: best.inputs, time: best.time } : null;
   view.snapCamera();
   hud.setAttempt(session.current);
   hud.setTime(0);
@@ -174,10 +177,11 @@ function showResults(): void {
 }
 
 // En développement seulement : race.html?pilote ajoute le pilote automatique au gaz (pour tester le fantôme).
-const devPilot = import.meta.env.DEV && params.has("pilote");
+const devRoute = import.meta.env.DEV && params.has("pilote") ? findRoute(mapDef.blocks) : null;
+let devPilot = devRoute ? makeAutopilot(devRoute) : null;
 
 function tick(): void {
-  const ev = attempt.step(devPilot && (controls.bits & IN_THROTTLE) ? autopilot(attempt.car, track) : controls.bits);
+  const ev = attempt.step(devPilot && (controls.bits & IN_THROTTLE) ? devPilot(attempt.car) : controls.bits);
   if (ghost && ghost.attempt.status === "running") {
     const i = ghost.attempt.tick;
     if (i < ghost.inputs.length) ghost.attempt.step(ghost.inputs[i]!);
