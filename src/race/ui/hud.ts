@@ -1,4 +1,4 @@
-import { ATTEMPTS_PER_MATCH, formatDelta, formatTime, type Medal } from "../session/session";
+import { formatDelta, formatTime, type Medal } from "../session/session";
 
 const MEDAL_LABEL: Record<Exclude<Medal, null>, string> = { auteur: "Auteur", or: "Or", argent: "Argent", bronze: "Bronze" };
 
@@ -21,8 +21,9 @@ export class Hud {
     this.timer.textContent = formatTime(t);
   }
 
-  setAttempt(n: number): void {
-    this.attempt.textContent = `Essai ${n}/${ATTEMPTS_PER_MATCH}`;
+  /** En solo (essais illimités), seul le numéro de l'essai s'affiche. */
+  setAttempt(n: number, total: number): void {
+    this.attempt.textContent = Number.isFinite(total) ? `Essai ${n}/${total}` : `Essai ${n}`;
   }
 
   setBest(t: number | null, medal: Medal): void {
@@ -62,7 +63,7 @@ export class Hud {
     const bestIdx = best === null ? -1 : times.indexOf(best);
     this.results.innerHTML = `
       <div class="res-card" role="dialog" aria-modal="true" aria-labelledby="resTitle">
-        <h2 id="resTitle">Fin des 10 essais</h2>
+        <h2 id="resTitle">Fin des ${times.length} essais</h2>
         <div class="res-best">
           <span class="medal big ${medal ?? "none"}">${medal === "auteur" ? "★" : medal ? MEDAL_LABEL[medal][0] : ""}</span>
           <div><span class="lbl">Meilleur temps</span><b>${formatTime(best)}</b>${medal ? `<span class="lbl">Médaille ${MEDAL_LABEL[medal]}</span>` : ""}</div>

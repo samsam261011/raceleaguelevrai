@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { initPhysics } from "../src/race/physics/car";
-import { IN_LEFT, IN_RIGHT, IN_THROTTLE } from "../src/race/physics/input";
+import { IN_BRAKE, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "../src/race/physics/input";
 import { Attempt } from "../src/race/sim/attempt";
 import { makeAutopilot } from "../src/race/sim/autopilot";
 import { GRAND_SAUT } from "../src/race/world/maps/grandSaut";
@@ -80,8 +80,8 @@ describe("moteur de conduite v3", () => {
     let worstTilt = 0;
     let slowest = Infinity;
     for (let i = 0; i < 240 && a.status === "running"; i++) {
-      // On braque vers le mur de gauche, puis on reste collé contre lui
-      a.step(IN_THROTTLE | (i < 60 || i % 20 < 10 ? IN_LEFT : 0));
+      // On dérive en biais vers le mur de gauche (environ 15°), puis on reste collé contre lui
+      a.step(IN_THROTTLE | (i < 30 || i % 20 < 6 ? IN_LEFT : 0));
       if (a.car.onWall) touched = true;
       if (i > 80) slowest = Math.min(slowest, a.car.speed);
       worstTilt = Math.max(worstTilt, roll(a.car));
@@ -115,6 +115,37 @@ describe("moteur de conduite v3", () => {
     const a = new Attempt(buildWorld({ id: "p", name: "p", medals: GRAND_SAUT.medals, blocks }));
     while (a.status === "running" && a.tick < 120 * 8) a.step(IN_THROTTLE);
     expect(a.status).toBe("finished");
+    a.dispose();
+  });
+
+  it("le grand saut dure longtemps, et freiner en l'air garde la voiture à plat et dans l'axe sans la ralentir", () => {
+    const pilot = makeAutopilot(findRoute(GRAND_SAUT.blocks)!);
+    const a = new Attempt(buildWorld(GRAND_SAUT));
+    let air = 0;
+    let longest = 0;
+    let worst = 0;
+    let lost = 0;
+    let takeoff = 0;
+    while (a.status === "running" && a.tick < 120 * 60) {
+      const flying = !a.car.grounded;
+      if (flying && air === 0) takeoff = Math.hypot(a.car.vx, a.car.vz);
+      a.step(flying ? IN_BRAKE : pilot(a.car));
+      if (!a.car.grounded) {
+        air++;
+        // Écart entre le nez de la voiture et sa trajectoire, et inclinaison
+        const off = Math.abs(Math.atan2(Math.sin(a.car.heading - Math.atan2(a.car.vx, a.car.vz)), Math.cos(a.car.heading - Math.atan2(a.car.vx, a.car.vz))));
+        // Le nez se relève en quittant le tremplin : on regarde après 0,4 s de vol
+        if (air > 48) worst = Math.max(worst, off, roll(a.car));
+        lost = Math.max(lost, takeoff - Math.hypot(a.car.vx, a.car.vz));
+      } else {
+        longest = Math.max(longest, air);
+        air = 0;
+      }
+    }
+    expect(a.status).toBe("finished");
+    expect(longest / 120).toBeGreaterThan(1.8);
+    expect(worst).toBeLessThan(0.08);
+    expect(lost).toBeLessThan(1);
     a.dispose();
   });
 });

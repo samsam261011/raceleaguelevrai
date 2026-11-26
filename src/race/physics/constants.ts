@@ -9,8 +9,10 @@ export const SUBSTEPS = 2;
 
 /** Vitesse max au moteur en m/s (75 m/s = 270 km/h). */
 export const VMAX = 75;
-/** Accélération moteur à l'arrêt (m/s²). Elle diminue en approchant de VMAX. */
-export const ENGINE = 36;
+/** Accélération moteur (m/s²). Elle reste forte longtemps et ne s'éteint qu'en approchant de VMAX. */
+export const ENGINE = 19;
+/** Temps pour que l'accélérateur donne toute sa poussée (s) : le départ monte en puissance au lieu de bondir. */
+export const THROTTLE_RAMP = 0.45;
 /** Freinage (m/s²). */
 export const BRAKE = 60;
 /** Marche arrière. */
@@ -31,14 +33,18 @@ export const MAX_WHEEL_ANGLE = 0.55;
 /** Adhérence des pneus (rapport entre force latérale max et charge). */
 export const TIRE_GRIP = 3.2;
 
-/** Gravité (un peu plus forte que la vraie, pour des sauts nerveux). */
+/** Gravité au sol (un peu plus forte que la vraie : la voiture colle à la piste). */
 export const GRAVITY = 26;
+/** Gravité ressentie en l'air : bien plus faible, pour des sauts longs et planés. */
+export const AIR_GRAVITY = 13;
 /** Appui aérodynamique : accélération vers la piste par m/s de vitesse. */
 export const DOWNFORCE = 0.3;
 /** Contrôle en l'air : vitesse de rotation visée au volant (rad/s), et redressement automatique. */
-export const AIR_STEER = 0.35;
+export const AIR_STEER = 0.7;
 /** Vitesse à laquelle la rotation en l'air rejoint celle demandée (par seconde) : basse = doux. */
-export const AIR_STEER_RESPONSE = 2.5;
+export const AIR_STEER_RESPONSE = 3;
+/** Frein en l'air : la voiture cesse de tourner, se met à plat et s'aligne sur sa trajectoire, sans perdre de vitesse (par seconde). */
+export const AIR_BRAKE_RESPONSE = 4;
 export const AIR_LEVEL = 3;
 export const ANGULAR_DAMPING = 0.6;
 /** Anti-roulis au sol : vitesse de redressement par unité d'inclinaison (rad/s), et réactivité (par seconde). */
@@ -53,7 +59,7 @@ export const STUCK_LIFT = 1.2;
 
 /** Caisse : masse (kg), boîte de collision [demi-largeur, demi-hauteur, demi-longueur, hauteur du centre]. */
 export const MASS = 1000;
-export const HULL: readonly [number, number, number, number] = [1.25, 0.3, 2.4, 0.8];
+export const HULL: readonly [number, number, number, number] = [1.1, 0.3, 2.4, 0.85];
 /** Centre de gravité bas : la voiture ne bascule pas en virage. */
 export const CENTER_OF_MASS_Y = 0.3;
 /** Inertie [tangage, lacet, roulis] : un roulis très résistant, pour une voiture qui reste à plat. */
@@ -78,6 +84,14 @@ export const WALL_HEIGHT = 1;
 export const WALL_FRICTION = 0.15;
 export const WALL_BOUNCE = 0.15;
 /** Choc contre un parapet : part de la vitesse perdue en le prenant de face (moins en biais). */
-export const WALL_IMPACT = 0.6;
+export const WALL_IMPACT = 0.4;
 /** Vitesse conservée à chaque pas passé contre un parapet. */
 export const WALL_SPEED_KEEP = 0.994;
+
+/** Roues dans le repère de la voiture (+x à gauche, +z vers l'avant) : avant gauche, avant droite, arrière gauche, arrière droite. Rayon et largeur (m). */
+export const WHEELS = [
+  { x: 1.0, z: 1.55, r: 0.5, w: 0.4, front: true },
+  { x: -1.0, z: 1.55, r: 0.5, w: 0.4, front: true },
+  { x: 0.98, z: -1.45, r: 0.56, w: 0.5, front: false },
+  { x: -0.98, z: -1.45, r: 0.56, w: 0.5, front: false },
+] as const;

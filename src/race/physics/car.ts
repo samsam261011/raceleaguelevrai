@@ -53,13 +53,7 @@ export interface CarState {
   fell: boolean;
 }
 
-/** Points d'attache des roues dans le repère de la voiture : avant gauche, avant droite, arrière gauche, arrière droite. */
-export const WHEELS = [
-  { x: 1.12, z: 1.55, r: 0.4, front: true },
-  { x: -1.12, z: 1.55, r: 0.4, front: true },
-  { x: 1.08, z: -1.45, r: 0.44, front: false },
-  { x: -1.08, z: -1.45, r: 0.44, front: false },
-] as const;
+export const WHEELS = C.WHEELS;
 
 const collisionCache = new WeakMap<World, TrackCollision>();
 
@@ -77,6 +71,8 @@ export class CarSim {
   /** Pas passés retournée ou couchée sur le flanc, presque à l'arrêt. */
   private upsideTicks = 0;
   private steer = 0;
+  /** Pédale d'accélérateur, de 0 à 1 : elle monte progressivement quand on appuie. */
+  private throttle = 0;
   private onWall = false;
   private fell = false;
   state: CarState;
@@ -150,26 +146,30 @@ export class CarSim {
     const target = (has(input, IN_RIGHT) ? 1 : 0) - (has(input, IN_LEFT) ? 1 : 0);
     const maxDelta = C.STEER_RESPONSE * C.DT;
     this.steer += clamp(target - this.steer, -maxDelta, maxDelta);
+    this.throttle = has(input, IN_THROTTLE) ? Math.min(1, this.throttle + C.DT / C.THROTTLE_RAMP) : 0;
     const wasOnWall = this.onWall;
     this.onWall = false;
     const before = this.body.linvel();
 
     const dt = C.DT / C.SUBSTEPS;
-    for (let k = 0; k < C.SUBSTEPS; k++) this.substep(input, dt);
-
+    // Contact avec un parapet, vérifié à chaque sous-pas (un choc bref peut se finir avant la fin du pas)
     let nx = 0;
     let nz = 0;
-    this.rw.contactPairsWith(this.hull, (other) => {
-      if (!this.walls.has(other.handle)) return;
-      this.rw.contactPair(this.hull, other, (m) => {
-        if (m.numContacts() > 0) {
-          this.onWall = true;
-          const n = m.normal();
-          nx = n.x;
-          nz = n.z;
-        }
+    for (let k = 0; k < C.SUBSTEPS; k++) {
+      this.substep(input, dt);
+      this.rw.contactPairsWith(this.hull, (other) => {
+        if (!this.walls.has(other.handle)) return;
+        this.rw.contactPair(this.hull, other, (m) => {
+          if (m.numContacts() > 0) {
+            this.onWall = true;
+            const n = m.normal();
+            nx = n.x;
+            nz = n.z;
+          }
+        });
       });
-    });
+    }
+
     if (this.onWall && !wasOnWall) {
       // Choc contre un parapet : plus on arrive de face, plus on perd de vitesse (de rien en frôlant à 60 % de face)
       const sp = Math.sqrt(before.x * before.x + before.z * before.z);
@@ -215,7 +215,11 @@ export class CarSim {
     // Moteur (roues arrière), frein et marche arrière
     let drive = 0;
     let brakeAll = 0;
-    if (has(input, IN_THROTTLE) && vf < C.VMAX) drive += C.ENGINE * (1 - vf / C.VMAX);
+    if (has(input, IN_THROTTLE) && vf < C.VMAX) {
+      // Poussée progressive : forte au départ sans être brutale, encore présente à haute vitesse
+      const r = vf > 0 ? vf / C.VMAX : 0;
+      drive += C.ENGINE * this.throttle * (1 - r * r * r);
+    }
     if (has(input, IN_BRAKE)) {
       if (vf > 0.5) brakeAll = C.BRAKE;
       else if (vf > -C.REVERSE_MAX) drive -= C.REVERSE_ACCEL;
@@ -269,16 +273,40 @@ export class CarSim {
       const dr = (want - rollRate) * clamp(C.ANTI_ROLL_RESPONSE * dt, 0, 1);
       b.setAngvel({ x: w.x + fx * dr, y: w.y + fy * dr, z: w.z + fz * dr }, true);
     } else {
-      // En l'air : on peut orienter un peu la voiture, et elle se remet doucement à plat
+      // En l'air : gravité allégée pour des sauts longs
+      const lift = C.MASS * (C.GRAVITY - C.AIR_GRAVITY) * dt;
+      b.applyImpulse({ x: 0, y: lift, z: 0 }, true);
       const w = b.angvel();
-      const yaw = -this.steer * C.AIR_STEER;
-      // Axe pour redresser : haut de la voiture × vertical
-      const lx = -uz;
-      const lz = ux;
-      const k = C.AIR_LEVEL * dt;
-      const cur = w.x * ux + w.y * uy + w.z * uz;
-      const dy = (yaw - cur) * clamp(C.AIR_STEER_RESPONSE * dt, 0, 1);
-      b.setAngvel({ x: w.x + ux * dy + lx * k, y: w.y + uy * dy, z: w.z + uz * dy + lz * k }, true);
+      if (has(input, IN_BRAKE)) {
+        // Frein en l'air : plus de rotation parasite, la voiture se met à plat et s'aligne sur sa trajectoire
+        // pour repartir proprement à la réception. La vitesse n'est pas touchée.
+        const k = clamp(C.AIR_BRAKE_RESPONSE * dt, 0, 1);
+        // Inclinaison : haut de la voiture × vertical
+        let tx = -uz;
+        let ty = 0;
+        let tz = ux;
+        // Cap : avant de la voiture × direction horizontale du mouvement
+        const hl = Math.sqrt(lv.x * lv.x + lv.z * lv.z);
+        if (hl > 2 && vf > 0) {
+          const dx = lv.x / hl;
+          const dz = lv.z / hl;
+          const fl = Math.sqrt(fx * fx + fz * fz) || 1;
+          ty += ((fz / fl) * dx - (fx / fl) * dz);
+        }
+        tx *= C.AIR_LEVEL * 2;
+        ty *= C.AIR_LEVEL * 2;
+        tz *= C.AIR_LEVEL * 2;
+        b.setAngvel({ x: w.x + (tx - w.x) * k, y: w.y + (ty - w.y) * k, z: w.z + (tz - w.z) * k }, true);
+      } else {
+        // On peut orienter la voiture au volant, et elle se remet doucement à plat
+        const yaw = -this.steer * C.AIR_STEER;
+        const lx = -uz;
+        const lz = ux;
+        const k = C.AIR_LEVEL * dt;
+        const cur = w.x * ux + w.y * uy + w.z * uz;
+        const dy = (yaw - cur) * clamp(C.AIR_STEER_RESPONSE * dt, 0, 1);
+        b.setAngvel({ x: w.x + ux * dy + lx * k, y: w.y + uy * dy, z: w.z + uz * dy + lz * k }, true);
+      }
     }
 
     v.updateVehicle(dt, undefined, undefined, this.wheelFilter);

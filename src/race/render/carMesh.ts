@@ -1,10 +1,11 @@
 import * as THREE from "three";
+import { WHEELS } from "../physics/constants";
 import { col, loft, Mesher, mirrored } from "./geom";
 
 /**
- * Voiture de la ligue : un prototype bas et large, roues avant découvertes (on les voit braquer),
+ * Voiture de la ligue : un prototype haut sur pattes, grosses roues découvertes (on les voit braquer),
  * monocoque profilée, pontons latéraux, aileron arrière sur deux mâts.
- * Dimensions réelles en mètres (environ 4,9 m de long, 2,6 m de large aux roues), sans mise à l'échelle.
+ * Dimensions réelles en mètres (environ 4,9 m de long, 2,4 m de large aux roues).
  * Peu d'appels de dessin : carrosserie, vitrage, feux, 4 roues.
  */
 export interface CarMesh {
@@ -35,8 +36,12 @@ const CARBON = col(0x24232b);
 const CARBON_LIGHT = col(0x3a3942);
 const STRIPE = col(0xf6f3ee);
 
-const FRONT_Z = 1.55;
-const REAR_Z = -1.45;
+const FRONT_Z = WHEELS[0].z;
+const REAR_Z = WHEELS[2].z;
+/** La caisse est dessinée large et basse, puis affinée (largeur), rehaussée (hauteur) et surélevée. */
+const BODY_WIDTH = 0.82;
+const BODY_HEIGHT = 1.25;
+const BODY_LIFT = 0.16;
 
 interface Shapes {
   body: THREE.BufferGeometry;
@@ -169,11 +174,11 @@ function shapes(primary: THREE.Color): Shapes {
   }
   // Suspensions : triangles fins entre la coque et les moyeux
   for (const s of [1, -1]) {
-    for (const [z, hx] of [
-      [FRONT_Z, 1.12],
-      [REAR_Z, 1.08],
+    for (const [z, hx, r] of [
+      [FRONT_Z, WHEELS[0].x / BODY_WIDTH, WHEELS[0].r],
+      [REAR_Z, WHEELS[2].x / BODY_WIDTH, WHEELS[2].r],
     ] as const) {
-      const hub = new THREE.Vector3(s * (hx - 0.12), 0.42, z);
+      const hub = new THREE.Vector3(s * (hx - 0.12), (r - BODY_LIFT) / BODY_HEIGHT + 0.04, z);
       rod(body, new THREE.Vector3(s * 0.36, 0.5, z + 0.25), hub, 0.025, CARBON);
       rod(body, new THREE.Vector3(s * 0.36, 0.5, z - 0.25), hub, 0.025, CARBON);
       rod(body, new THREE.Vector3(s * 0.36, 0.22, z + 0.2), hub.clone().setY(0.34), 0.025, CARBON);
@@ -199,12 +204,13 @@ function shapes(primary: THREE.Color): Shapes {
   box(lights, 1.0, 0.07, 0.03, 0, 0.37, -2.12, col(0xffffff));
   box(lights, 0.12, 0.12, 0.03, 0, 0.82, -2.33, col(0xffffff));
 
+  const fit = new THREE.Matrix4().makeTranslation(0, BODY_LIFT, 0).multiply(new THREE.Matrix4().makeScale(BODY_WIDTH, BODY_HEIGHT, 1));
   return {
-    body: body.geometry(),
-    glass: glass.geometry(),
-    lights: lights.geometry(),
-    frontWheel: wheel(0.4, 0.34, col(0xffb23e)),
-    rearWheel: wheel(0.44, 0.44, col(0xffb23e)),
+    body: body.geometry().applyMatrix4(fit),
+    glass: glass.geometry().applyMatrix4(fit),
+    lights: lights.geometry().applyMatrix4(fit),
+    frontWheel: wheel(WHEELS[0].r, WHEELS[0].w, col(0xffb23e)),
+    rearWheel: wheel(WHEELS[2].r, WHEELS[2].w, col(0xffb23e)),
   };
 }
 
@@ -234,14 +240,14 @@ function assemble(sh: Shapes, mats: Mats, shadows: boolean): Omit<CarMesh, "fade
   // Roues : en dehors de la caisse, pour qu'elles restent posées quand la caisse bouge
   const wheels: THREE.Mesh[] = [];
   const steerPivots: THREE.Group[] = [];
-  for (const [x, z, front] of [
-    [-1.12, FRONT_Z, true],
-    [1.12, FRONT_Z, true],
-    [-1.08, REAR_Z, false],
-    [1.08, REAR_Z, false],
+  for (const [x, z, front, r] of [
+    [-WHEELS[0].x, FRONT_Z, true, WHEELS[0].r],
+    [WHEELS[0].x, FRONT_Z, true, WHEELS[0].r],
+    [-WHEELS[2].x, REAR_Z, false, WHEELS[2].r],
+    [WHEELS[2].x, REAR_Z, false, WHEELS[2].r],
   ] as const) {
     const pivot = new THREE.Group();
-    pivot.position.set(x, front ? 0.4 : 0.44, z);
+    pivot.position.set(x, r, z);
     const w = add(front ? sh.frontWheel : sh.rearWheel, mats.wheel, pivot);
     // La géométrie de roue a sa face extérieure vers +x : on retourne celles de gauche
     if (x < 0) pivot.scale.x = -1;

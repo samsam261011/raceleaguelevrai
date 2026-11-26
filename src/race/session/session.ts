@@ -1,4 +1,4 @@
-/** Une série de 10 tentatives sur une map : le cœur d'un match RaceLeague. */
+/** Une série de 10 tentatives sur une map : le cœur d'un match classé RaceLeague. En solo, les essais sont illimités. */
 export const ATTEMPTS_PER_MATCH = 10;
 
 export interface AttemptResult {
@@ -27,7 +27,7 @@ export class Session {
     return this.remaining <= 0;
   }
 
-  /** Numéro de la tentative en cours (1 à 10). */
+  /** Numéro de la tentative en cours (1 à 10 en classé, sans limite en solo). */
   get current(): number {
     return Math.min(this.attempts, this.results.length + 1);
   }

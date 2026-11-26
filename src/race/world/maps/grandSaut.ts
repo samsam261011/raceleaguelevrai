@@ -34,5 +34,5 @@ export const GRAND_SAUT: MapDefinition = {
     B("arrivee", 15, -5, 2),
   ],
   // Sans booster depuis le moteur v3 : temps provisoires, à refaire à la main
-  medals: { auteur: 11.3, or: 11.9, argent: 13, bronze: 15.3 },
+  medals: { auteur: 12.9, or: 13.5, argent: 14.6, bronze: 16.9 },
 };

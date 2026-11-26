@@ -25,6 +25,14 @@ describe("série de 10 tentatives", () => {
     expect(s.bestTime).toBe(21);
   });
 
+  it("en solo, les essais sont illimités", () => {
+    const s = new Session(Infinity);
+    for (let i = 0; i < 50; i++) s.record({ time: 60 - i, splits: [], inputs: [] });
+    expect(s.done).toBe(false);
+    expect(s.current).toBe(51);
+    expect(s.bestTime).toBe(11);
+  });
+
   it("donne la bonne médaille", () => {
     expect(medalFor(19.9, medals)).toBe("auteur");
     expect(medalFor(20.5, medals)).toBe("or");

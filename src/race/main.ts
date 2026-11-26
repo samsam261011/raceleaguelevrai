@@ -5,7 +5,7 @@ import { copyCar, initPhysics, type CarState } from "./physics/car";
 import { DT } from "./physics/constants";
 import { IN_BRAKE, IN_DRIVE, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "./physics/input";
 import { RaceView } from "./render/view";
-import { formatDelta, formatTime, medalFor, Session } from "./session/session";
+import { ATTEMPTS_PER_MATCH, formatDelta, formatTime, medalFor, Session } from "./session/session";
 import { Attempt } from "./sim/attempt";
 import { makeAutopilot } from "./sim/autopilot";
 import { customMapId, decodeMap } from "./world/code";
@@ -18,7 +18,7 @@ import { Hud } from "./ui/hud";
  * ready   : la voiture attend sur la ligne, le chrono part à la première touche de conduite
  * running : l'essai est en cours
  * between : petit temps après une arrivée ou une chute
- * results : les 10 essais sont joués
+ * results : les 10 essais du classé sont joués
  */
 type Phase = "ready" | "running" | "between" | "results";
 
@@ -48,7 +48,10 @@ $("mapName").textContent = mapDef.name;
 const hud = new Hud();
 const view = new RaceView($("scene") as HTMLCanvasElement, world, $("speedfx") as HTMLCanvasElement);
 
-let session = new Session();
+/** Classé (race.html?classe) : 10 essais. Solo : essais illimités. */
+const ranked = params.has("classe");
+const newSession = (): Session => new Session(ranked ? ATTEMPTS_PER_MATCH : Infinity);
+let session = newSession();
 /** Créée au chargement du moteur physique (voir la fin du fichier). */
 let attempt: Attempt;
 let ghost: { attempt: Attempt; inputs: number[]; time: number } | null = null;
@@ -129,7 +132,7 @@ function beginAttempt(): void {
   const best = session.best;
   ghost = best && best.time !== null ? { attempt: new Attempt(world), inputs: best.inputs, time: best.time } : null;
   view.snapCamera();
-  hud.setAttempt(session.current);
+  hud.setAttempt(session.current, session.attempts);
   hud.setTime(0);
   hud.clearFlash();
   accumulator = 0;
@@ -172,7 +175,7 @@ function showResults(): void {
     medalFor(best, mapDef.medals),
     () => {
       hud.hideResults();
-      session = new Session();
+      session = newSession();
       refreshBest();
       beginAttempt();
     },
