@@ -5,6 +5,15 @@ export const TILE = 20;
 export const HALF = TILE / 2;
 /** Hauteur d'un cran de hauteur (m). */
 export const STEP = 2;
+/**
+ * Dessous d'une dalle, du bord vers le centre : [écart au centre, hauteur sous la route] (m).
+ * Partagé par l'affichage et les collisions : la voiture touche exactement ce qu'on voit.
+ */
+export const SLAB_UNDER: ReadonlyArray<readonly [number, number]> = [
+  [HALF, -0.55],
+  [6.6, -0.95],
+  [5.4, -1.8],
+];
 /** Hauteur maximale, en crans (le code texte en garde 6 bits). */
 export const MAX_LEVEL = 63;
 

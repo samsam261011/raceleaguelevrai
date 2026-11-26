@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { initPhysics } from "../src/race/physics/car";
-import { IN_RIGHT, IN_THROTTLE } from "../src/race/physics/input";
+import { IN_LEFT, IN_RIGHT, IN_THROTTLE } from "../src/race/physics/input";
 import { Attempt } from "../src/race/sim/attempt";
 import { makeAutopilot } from "../src/race/sim/autopilot";
 import { GRAND_SAUT } from "../src/race/world/maps/grandSaut";
@@ -67,6 +67,53 @@ describe("moteur de conduite v3", () => {
     }
     expect(flew).toBe(true);
     expect(landedFlat).toBe(true);
+    expect(a.status).toBe("finished");
+    a.dispose();
+  });
+
+  it("frotter un parapet ralentit sans accrocher ni faire basculer la voiture", () => {
+    const blocks: Block[] = [{ kind: "depart", x: 0, z: 0, level: 0, rot: 0 }, { kind: "arrivee", x: 0, z: 16, level: 0, rot: 0 }];
+    for (let z = 1; z < 16; z++) blocks.push({ kind: "route", x: 0, z, level: 0, rot: 0 });
+    const a = new Attempt(buildWorld({ id: "m", name: "m", medals: GRAND_SAUT.medals, blocks }));
+    while (a.car.speed < 50) a.step(IN_THROTTLE);
+    let touched = false;
+    let worstTilt = 0;
+    let slowest = Infinity;
+    for (let i = 0; i < 240 && a.status === "running"; i++) {
+      // On braque vers le mur de gauche, puis on reste collé contre lui
+      a.step(IN_THROTTLE | (i < 60 || i % 20 < 10 ? IN_LEFT : 0));
+      if (a.car.onWall) touched = true;
+      if (i > 80) slowest = Math.min(slowest, a.car.speed);
+      worstTilt = Math.max(worstTilt, roll(a.car));
+    }
+    expect(touched).toBe(true);
+    expect(a.status).toBe("running");
+    // Ça freine, mais pas d'arrêt net aux jonctions entre deux pièces
+    expect(slowest).toBeGreaterThan(15);
+    expect(worstTilt).toBeLessThan(0.12);
+    a.dispose();
+  });
+
+  it("une voiture retournée est remise sur ses roues", () => {
+    const a = new Attempt(esplanade());
+    for (let i = 0; i < 30; i++) a.step(0);
+    a.sim.teleport(0, 1.5, 0, { x: 0, y: 0, z: 1, w: 0 });
+    let t = 0;
+    while (t < 360 && !(t > 10 && a.car.wheels.every((w) => w.contact))) {
+      a.step(0);
+      t++;
+    }
+    expect(t).toBeLessThan(300);
+    expect(1 - 2 * (a.car.qx * a.car.qx + a.car.qz * a.car.qz)).toBeGreaterThan(0.95);
+    a.dispose();
+  });
+
+  it("on passe sous un pont : pas de pylône au milieu de la route du dessous", () => {
+    const blocks: Block[] = [{ kind: "depart", x: 0, z: 0, level: 0, rot: 0 }, { kind: "arrivee", x: 0, z: 6, level: 0, rot: 0 }];
+    for (let z = 1; z < 6; z++) blocks.push({ kind: "route", x: 0, z, level: 0, rot: 0 });
+    for (let x = -3; x <= 3; x++) blocks.push({ kind: "route", x, z: 3, level: 4, rot: 1 });
+    const a = new Attempt(buildWorld({ id: "p", name: "p", medals: GRAND_SAUT.medals, blocks }));
+    while (a.status === "running" && a.tick < 120 * 8) a.step(IN_THROTTLE);
     expect(a.status).toBe("finished");
     a.dispose();
   });

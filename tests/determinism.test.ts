@@ -51,16 +51,19 @@ describe("physique déterministe", () => {
 
   it("foncer tout droit fait taper le rebord du premier virage, qui freine la voiture", () => {
     const a = new Attempt(world);
-    let touched = false;
-    let maxSpeed = 0;
+    let before = 0;
+    let after = -1;
     while (a.tick < 120 * 6 && a.status === "running") {
+      const sp = Math.hypot(a.car.vx, a.car.vz);
       a.step(IN_THROTTLE);
-      maxSpeed = Math.max(maxSpeed, Math.hypot(a.car.vx, a.car.vz));
-      if (a.car.onWall) touched = true;
+      if (a.car.onWall && after < 0) {
+        before = sp;
+        after = Math.hypot(a.car.vx, a.car.vz);
+      }
     }
-    expect(touched).toBe(true);
+    expect(after).toBeGreaterThanOrEqual(0);
     expect(a.status).toBe("running");
-    expect(Math.hypot(a.car.vx, a.car.vz)).toBeLessThan(maxSpeed * 0.6);
+    expect(after).toBeLessThan(before * 0.6);
   });
 
   it("les rebords empêchent de tomber en zigzaguant sur la ligne droite", () => {

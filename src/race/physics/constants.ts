@@ -41,6 +41,15 @@ export const AIR_STEER = 0.35;
 export const AIR_STEER_RESPONSE = 2.5;
 export const AIR_LEVEL = 3;
 export const ANGULAR_DAMPING = 0.6;
+/** Anti-roulis au sol : vitesse de redressement par unité d'inclinaison (rad/s), et réactivité (par seconde). */
+export const ANTI_ROLL = 12;
+export const ANTI_ROLL_RESPONSE = 20;
+
+/** Voiture retournée : sous ce « haut » (1 = à plat, 0 = sur le flanc) et cette vitesse (m/s) pendant ce temps (s), on la remet sur ses roues, un peu plus haut (m). */
+export const STUCK_UP = 0.3;
+export const STUCK_SPEED = 3;
+export const STUCK_TIME = 1;
+export const STUCK_LIFT = 1.2;
 
 /** Caisse : masse (kg), boîte de collision [demi-largeur, demi-hauteur, demi-longueur, hauteur du centre]. */
 export const MASS = 1000;
@@ -50,6 +59,8 @@ export const CENTER_OF_MASS_Y = 0.3;
 /** Inertie [tangage, lacet, roulis] : un roulis très résistant, pour une voiture qui reste à plat. */
 export const INERTIA: readonly [number, number, number] = [2600, 2600, 2600];
 export const HULL_FRICTION = 0.25;
+/** Arrondi des arêtes de la caisse (m). */
+export const HULL_ROUND = 0.2;
 export const ROAD_FRICTION = 0.6;
 
 /** Suspension : longueur au repos, enfoncement au repos, raideur, amortissement, débattement (m). */
@@ -66,3 +77,7 @@ export const WALL_HEIGHT = 1;
 /** Contact avec un parapet : glisse et rebond. */
 export const WALL_FRICTION = 0.15;
 export const WALL_BOUNCE = 0.15;
+/** Choc contre un parapet : part de la vitesse perdue en le prenant de face (moins en biais). */
+export const WALL_IMPACT = 0.6;
+/** Vitesse conservée à chaque pas passé contre un parapet. */
+export const WALL_SPEED_KEEP = 0.994;

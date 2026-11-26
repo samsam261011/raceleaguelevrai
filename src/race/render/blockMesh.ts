@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { WALL_HEIGHT, WALL_INSET } from "../physics/constants";
-import { E, HALF, N, PIECES, rotSide, S, SIDE_DIR, STEP, TILE, W, type PathPoint, type PieceKind } from "../world/pieces";
-import { cellKey, onBlock, type CompiledBlock, type World } from "../world/world";
+import { E, HALF, N, PIECES, rotSide, S, SIDE_DIR, SLAB_UNDER, STEP, TILE, W, type PathPoint, type PieceKind } from "../world/pieces";
+import { cellKey, type CompiledBlock, type World } from "../world/world";
+import { pillarSpots } from "../world/pillars";
 import { col, Mesher } from "./geom";
 
 /*
@@ -25,14 +26,10 @@ const C = {
 };
 
 /** Profil du dessous d'une dalle (demi-largeur, hauteur sous la chaussée), du bord vers l'axe. */
-const SLAB_EDGE = 0.55;
-const GIRDER_DEPTH = 1.8;
+const SLAB_EDGE = SLAB_UNDER[0]![1] * -1;
+const GIRDER_DEPTH = SLAB_UNDER[SLAB_UNDER.length - 1]![1] * -1;
 export const SLAB_BOTTOM = GIRDER_DEPTH;
-const UNDER: [number, number][] = [
-  [HALF, -SLAB_EDGE],
-  [6.6, -0.95],
-  [5.4, -GIRDER_DEPTH],
-];
+const UNDER = SLAB_UNDER as [number, number][];
 
 // ---------- Textures dessinées (aucune image téléchargée) ----------
 function canvasTexture(size: number, draw: (g: CanvasRenderingContext2D, s: number) => void): THREE.CanvasTexture {
@@ -543,37 +540,7 @@ const pillarMats = {
 
 /** Un pylône environ tous les 20 m sous chaque pièce en hauteur, posé sur la pièce du dessous ou sur le sol. */
 function buildPillars(world: World): THREE.Object3D {
-  const list: { x: number; z: number; top: number; bottom: number; yaw: number }[] = [];
-  for (const cb of world.blocks) {
-    const { pts, along } = sample(cb.def.path);
-    const len = along[along.length - 1]!;
-    const count = Math.max(1, Math.round(len / TILE));
-    const local = new THREE.Object3D();
-    placeBlock(local, cb.block);
-    local.updateMatrix();
-    for (let k = 0; k < count; k++) {
-      const target = ((k + 0.5) * len) / count;
-      let i = 0;
-      while (i < along.length - 2 && along[i + 1]! < target) i++;
-      const t = (target - along[i]!) / Math.max(1e-6, along[i + 1]! - along[i]!);
-      const a = pts[i]!;
-      const b = pts[i + 1]!;
-      const p = new THREE.Vector3(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t).applyMatrix4(local.matrix);
-      const d = new THREE.Vector3(b.x - a.x, 0, b.z - a.z).transformDirection(local.matrix);
-      const top = p.y - GIRDER_DEPTH;
-      // Le pylône descend jusqu'à la pièce juste en dessous, ou jusqu'au sol
-      let bottom = world.groundY - 0.2;
-      const cell = cellKey(Math.round(p.x / TILE), Math.round(p.z / TILE));
-      for (const j of world.cells.get(cell) ?? []) {
-        const o = world.blocks[j]!;
-        if (o === cb) continue;
-        const h = onBlock(o, p.x, p.z);
-        if (h && h.groundY < top - 0.5) bottom = Math.max(bottom, h.groundY);
-      }
-      if (top - bottom < 0.6) continue;
-      list.push({ x: p.x, z: p.z, top, bottom, yaw: Math.atan2(d.x, d.z) });
-    }
-  }
+  const list = pillarSpots(world).map((p) => ({ ...p, yaw: Math.atan2(p.dx, p.dz) }));
   const geo = pillarGeometries();
   const g = new THREE.Group();
   const make = (geom: THREE.BufferGeometry, mat: THREE.Material, place: (m: THREE.Matrix4, it: (typeof list)[number]) => boolean) => {

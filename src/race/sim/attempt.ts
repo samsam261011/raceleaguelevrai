@@ -26,7 +26,7 @@ export class Attempt {
   readonly splits: number[] = [];
   private readonly passed = new Set<number>();
   finishTime: number | null = null;
-  private readonly sim: CarSim;
+  readonly sim: CarSim;
 
   /** Le moteur physique doit être chargé avant (voir initPhysics). */
   constructor(readonly world: World) {

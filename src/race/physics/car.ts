@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-deterministic-compat";
 import { clamp, dcos, dsin } from "../math/dmath";
 import type { World } from "../world/world";
-import { buildCollision, type BlockCollision } from "./collision";
+import { buildCollision, type TrackCollision } from "./collision";
 import * as C from "./constants";
 import { has, IN_BRAKE, IN_LEFT, IN_RIGHT, IN_THROTTLE, type InputBits } from "./input";
 
@@ -61,7 +61,7 @@ export const WHEELS = [
   { x: -1.08, z: -1.45, r: 0.44, front: false },
 ] as const;
 
-const collisionCache = new WeakMap<World, BlockCollision[]>();
+const collisionCache = new WeakMap<World, TrackCollision>();
 
 /** La voiture dans son monde physique. Une par tentative (et une pour le fantôme). */
 export class CarSim {
@@ -72,6 +72,10 @@ export class CarSim {
   /** Collider de surface → index de la pièce. */
   private readonly surfaceBlock = new Map<number, number>();
   private readonly walls = new Set<number>();
+  /** Tout ce qui est solide mais où les roues ne roulent pas : parapets, dessous des dalles, pylônes. */
+  private readonly notRoad = new Set<number>();
+  /** Pas passés retournée ou couchée sur le flanc, presque à l'arrêt. */
+  private upsideTicks = 0;
   private steer = 0;
   private onWall = false;
   private fell = false;
@@ -84,13 +88,22 @@ export class CarSim {
 
     let col = collisionCache.get(world);
     if (!col) collisionCache.set(world, (col = buildCollision(world)));
-    for (const bc of col) {
-      const s = rw.createCollider(RAPIER.ColliderDesc.trimesh(bc.surface.vertices, bc.surface.indices).setFriction(C.ROAD_FRICTION));
-      this.surfaceBlock.set(s.handle, bc.block);
-      if (bc.walls) {
-        const w = rw.createCollider(RAPIER.ColliderDesc.trimesh(bc.walls.vertices, bc.walls.indices).setFriction(C.WALL_FRICTION).setRestitution(C.WALL_BOUNCE));
-        this.walls.add(w.handle);
-      }
+    const solid = (soup: { vertices: Float32Array; indices: Uint32Array }, friction: number) =>
+      rw.createCollider(RAPIER.ColliderDesc.trimesh(soup.vertices, soup.indices).setFriction(friction).setRestitution(C.WALL_BOUNCE));
+    for (const { block, soup } of col.surfaces) this.surfaceBlock.set(solid(soup, C.ROAD_FRICTION).handle, block);
+    if (col.underside) this.notRoad.add(solid(col.underside, C.WALL_FRICTION).handle);
+    if (col.walls) {
+      const w = solid(col.walls, C.WALL_FRICTION);
+      this.walls.add(w.handle);
+      this.notRoad.add(w.handle);
+    }
+    for (const p of col.pillars) {
+      const shaft = rw.createCollider(RAPIER.ColliderDesc.cylinder(p.shaftHalf, p.radius).setTranslation(p.x, p.shaftY, p.z).setFriction(C.WALL_FRICTION).setRestitution(C.WALL_BOUNCE));
+      const cap = rw.createCollider(
+        RAPIER.ColliderDesc.cuboid(p.capHalf[0], p.capHalf[1], p.capHalf[2]).setTranslation(p.x, p.capY, p.z).setRotation(p.capRot).setFriction(C.WALL_FRICTION).setRestitution(C.WALL_BOUNCE),
+      );
+      this.notRoad.add(shaft.handle);
+      this.notRoad.add(cap.handle);
     }
 
     const s = world.spawn;
@@ -105,7 +118,8 @@ export class CarSim {
     );
     const [hx, hy, hz, cy] = C.HULL;
     this.hull = rw.createCollider(
-      RAPIER.ColliderDesc.cuboid(hx, hy, hz)
+      // Boîte aux arêtes arrondies : elle glisse sur les parapets au lieu de s'y planter
+      RAPIER.ColliderDesc.roundCuboid(hx - C.HULL_ROUND, hy - C.HULL_ROUND, hz - C.HULL_ROUND, C.HULL_ROUND)
         .setTranslation(0, cy, 0)
         .setMassProperties(C.MASS, { x: 0, y: C.CENTER_OF_MASS_Y - cy, z: 0 }, { x: C.INERTIA[0], y: C.INERTIA[1], z: C.INERTIA[2] }, { x: 0, y: 0, z: 0, w: 1 })
         .setFriction(C.HULL_FRICTION)
@@ -136,17 +150,43 @@ export class CarSim {
     const target = (has(input, IN_RIGHT) ? 1 : 0) - (has(input, IN_LEFT) ? 1 : 0);
     const maxDelta = C.STEER_RESPONSE * C.DT;
     this.steer += clamp(target - this.steer, -maxDelta, maxDelta);
+    const wasOnWall = this.onWall;
     this.onWall = false;
+    const before = this.body.linvel();
 
     const dt = C.DT / C.SUBSTEPS;
     for (let k = 0; k < C.SUBSTEPS; k++) this.substep(input, dt);
 
+    let nx = 0;
+    let nz = 0;
     this.rw.contactPairsWith(this.hull, (other) => {
       if (!this.walls.has(other.handle)) return;
       this.rw.contactPair(this.hull, other, (m) => {
-        if (m.numContacts() > 0) this.onWall = true;
+        if (m.numContacts() > 0) {
+          this.onWall = true;
+          const n = m.normal();
+          nx = n.x;
+          nz = n.z;
+        }
       });
     });
+    if (this.onWall && !wasOnWall) {
+      // Choc contre un parapet : plus on arrive de face, plus on perd de vitesse (de rien en frôlant à 60 % de face)
+      const sp = Math.sqrt(before.x * before.x + before.z * before.z);
+      const nl = Math.sqrt(nx * nx + nz * nz);
+      if (sp > 1 && nl > 0) {
+        const facing = Math.abs(before.x * nx + before.z * nz) / (sp * nl);
+        const keep = 1 - C.WALL_IMPACT * facing;
+        const lv = this.body.linvel();
+        this.body.setLinvel({ x: lv.x * keep, y: lv.y, z: lv.z * keep }, true);
+      }
+    }
+    if (this.onWall) {
+      // Frotter un parapet coûte du temps : la voiture perd un peu de vitesse à chaque pas de contact
+      const lv = this.body.linvel();
+      this.body.setLinvel({ x: lv.x * C.WALL_SPEED_KEEP, y: lv.y, z: lv.z * C.WALL_SPEED_KEEP }, true);
+    }
+    this.rightIfStuck();
     const t = this.body.translation();
     if (t.y < this.world.groundY + 0.2) this.fell = true;
     this.state = this.snapshot();
@@ -203,6 +243,31 @@ export class CarSim {
       let drag = C.ROLL_DRAG / C.SUBSTEPS;
       if (vf > C.VMAX) drag += (C.OVERSPEED_DRAG * dt * (vf - C.VMAX)) / vf;
       b.setLinvel({ x: lv.x - fx * vf * drag, y: lv.y - fy * vf * drag, z: lv.z - fz * vf * drag }, true);
+      // Anti-roulis : la voiture reste parallèle à la piste, même plaquée contre un parapet.
+      // On mesure l'inclinaison de son axe gauche-droite par rapport au sol sous les roues, et on la corrige.
+      let nx = 0;
+      let ny = 0;
+      let nz = 0;
+      for (let i = 0; i < 4; i++) {
+        if (!v.wheelIsInContact(i)) continue;
+        const n = v.wheelContactNormal(i);
+        if (n) {
+          nx += n.x;
+          ny += n.y;
+          nz += n.z;
+        }
+      }
+      const nl = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      // Axe droit de la voiture (repère local -x)
+      const rx = -(1 - 2 * (q.y * q.y + q.z * q.z));
+      const ry = -2 * (q.x * q.y + q.w * q.z);
+      const rz = -2 * (q.x * q.z - q.w * q.y);
+      const tilt = (rx * nx + ry * ny + rz * nz) / nl;
+      const w = b.angvel();
+      const rollRate = w.x * fx + w.y * fy + w.z * fz;
+      const want = tilt * C.ANTI_ROLL;
+      const dr = (want - rollRate) * clamp(C.ANTI_ROLL_RESPONSE * dt, 0, 1);
+      b.setAngvel({ x: w.x + fx * dr, y: w.y + fy * dr, z: w.z + fz * dr }, true);
     } else {
       // En l'air : on peut orienter un peu la voiture, et elle se remet doucement à plat
       const w = b.angvel();
@@ -221,9 +286,39 @@ export class CarSim {
     this.lastWheelAngle = wheelAngle;
   }
 
+  /**
+   * Voiture retournée ou couchée sur le flanc, presque à l'arrêt, pendant 1 s :
+   * on la remet sur ses roues sur place, dans le sens où elle regardait. Le chrono continue.
+   */
+  private rightIfStuck(): void {
+    const q = this.body.rotation();
+    const uy = 1 - 2 * (q.x * q.x + q.z * q.z);
+    const lv = this.body.linvel();
+    const slow = lv.x * lv.x + lv.y * lv.y + lv.z * lv.z < C.STUCK_SPEED * C.STUCK_SPEED;
+    this.upsideTicks = uy < C.STUCK_UP && slow ? this.upsideTicks + 1 : 0;
+    if (this.upsideTicks < C.STUCK_TIME * C.TICK_RATE) return;
+    this.upsideTicks = 0;
+    // Cap actuel, projeté au sol (si la voiture est sur le nez, on prend son toit pour direction)
+    let fx = 2 * (q.x * q.z + q.w * q.y);
+    let fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+    if (fx * fx + fz * fz < 0.01) {
+      fx = 2 * (q.x * q.y - q.w * q.z);
+      fz = 2 * (q.y * q.z + q.w * q.x);
+    }
+    const L = Math.sqrt(fx * fx + fz * fz) || 1;
+    const c = fz / L;
+    const sHalf = Math.sqrt(Math.max(0, (1 - c) / 2));
+    const cHalf = Math.sqrt(Math.max(0, (1 + c) / 2));
+    const t = this.body.translation();
+    this.body.setTranslation({ x: t.x, y: t.y + C.STUCK_LIFT, z: t.z }, true);
+    this.body.setRotation({ x: 0, y: fx < 0 ? -sHalf : sHalf, z: 0, w: cHalf }, true);
+    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  }
+
   private lastWheelAngle = 0;
   /** Les roues ne roulent que sur les dalles, jamais sur le dessus des parapets. */
-  private readonly wheelFilter = (c: RAPIER.Collider) => !this.walls.has(c.handle);
+  private readonly wheelFilter = (c: RAPIER.Collider) => !this.notRoad.has(c.handle);
 
   private snapshot(): CarState {
     const t = this.body.translation();
@@ -260,6 +355,15 @@ export class CarSim {
       onWall: this.onWall,
       fell: this.fell,
     };
+  }
+
+  /** Pose la voiture ailleurs, à l'arrêt (tests, et plus tard la reprise au checkpoint). */
+  teleport(x: number, y: number, z: number, rot: { x: number; y: number; z: number; w: number }): void {
+    this.body.setTranslation({ x, y, z }, true);
+    this.body.setRotation(rot, true);
+    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    this.state = this.snapshot();
   }
 
   dispose(): void {
