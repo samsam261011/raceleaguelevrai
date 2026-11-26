@@ -1,4 +1,4 @@
-import { copyCar, spawnCar, stepCar, type CarState } from "../physics/car";
+import { CarSim, copyCar, type CarState } from "../physics/car";
 import { DT } from "../physics/constants";
 import type { InputBits } from "../physics/input";
 import { HALF } from "../world/pieces";
@@ -26,10 +26,18 @@ export class Attempt {
   readonly splits: number[] = [];
   private readonly passed = new Set<number>();
   finishTime: number | null = null;
+  private readonly sim: CarSim;
 
+  /** Le moteur physique doit être chargé avant (voir initPhysics). */
   constructor(readonly world: World) {
-    this.car = spawnCar(world);
+    this.sim = new CarSim(world);
+    this.car = this.sim.state;
     this.prev = copyCar(this.car);
+  }
+
+  /** Libère le monde physique de la tentative. */
+  dispose(): void {
+    this.sim.dispose();
   }
 
   /** Avance d'un pas. Retourne le checkpoint franchi pendant ce pas, s'il y en a un. */
@@ -38,7 +46,7 @@ export class Attempt {
     this.prev = this.car;
     this.inputs.push(input & 0xff);
     const a = this.car;
-    const b = stepCar(a, input, this.world);
+    const b = this.sim.step(input);
     this.car = b;
     this.tick++;
 
@@ -83,5 +91,6 @@ export class Attempt {
 export function replayAttempt(world: World, inputs: ArrayLike<number>): { status: AttemptStatus; time: number | null; splits: number[] } {
   const a = new Attempt(world);
   for (let i = 0; i < inputs.length && a.status === "running"; i++) a.step(inputs[i]!);
+  a.dispose();
   return { status: a.status, time: a.finishTime, splits: a.splits.slice() };
 }

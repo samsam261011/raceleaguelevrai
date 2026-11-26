@@ -1,9 +1,11 @@
 /**
  * Réglages de la voiture. Toute la sensation de pilotage se joue ici.
- * La physique tourne à 120 pas par seconde, quel que soit l'écran.
+ * Le jeu avance à 120 pas par seconde (une entrée clavier par pas), quel que soit l'écran ;
+ * chaque pas est découpé en sous-pas de physique pour des contacts précis à haute vitesse.
  */
 export const TICK_RATE = 120;
 export const DT = 1 / TICK_RATE;
+export const SUBSTEPS = 2;
 
 /** Vitesse max au moteur en m/s (75 m/s = 270 km/h). */
 export const VMAX = 75;
@@ -14,33 +16,54 @@ export const BRAKE = 60;
 /** Marche arrière. */
 export const REVERSE_ACCEL = 14;
 export const REVERSE_MAX = 12;
-/** Frottements quand on lâche tout (fraction de vitesse perdue par pas). */
+/** Frottements quand on roule (fraction de vitesse perdue par pas de jeu). */
 export const ROLL_DRAG = 0.001;
 /** Au-dessus de VMAX (après un booster), la vitesse redescend doucement (par seconde). */
 export const OVERSPEED_DRAG = 0.35;
 /** Booster : poussée (m/s²) et vitesse max atteignable. */
 export const BOOST_ACCEL = 70;
 export const VMAX_BOOST = 100;
-/** Vitesse de rotation max du volant (rad/s). */
+
+/** Vitesse de rotation max visée au volant (rad/s) ; l'angle des roues en découle selon la vitesse. */
 export const STEER_MAX = 1.3;
 /** Temps pour braquer à fond (le volant n'est pas instantané). */
 export const STEER_RESPONSE = 6;
-/** Adhérence latérale : part de la glisse conservée à chaque pas. */
-export const GRIP_KEEP = 0.85;
+/** Empattement (m) et braquage max des roues (rad). */
+export const WHEELBASE = 3;
+export const MAX_WHEEL_ANGLE = 0.55;
+/** Adhérence des pneus (rapport entre force latérale max et charge). */
+export const TIRE_GRIP = 3.2;
+
 /** Gravité (un peu plus forte que la vraie, pour des sauts nerveux). */
 export const GRAVITY = 26;
-/** Contrôle en l'air (rotation). */
-export const AIR_STEER = 0.4;
-/** Hauteur max d'une marche que la voiture monte sans décoller (m). */
-export const STEP_UP = 1;
+/** Appui aérodynamique : accélération vers la piste par m/s de vitesse. */
+export const DOWNFORCE = 0.3;
+/** Contrôle en l'air : vitesse de rotation visée au volant (rad/s), et redressement automatique. */
+export const AIR_STEER = 1.2;
+export const AIR_LEVEL = 3;
+export const ANGULAR_DAMPING = 0.6;
 
-/** Demi-largeur de la voiture : distance entre son centre et un rebord quand elle le touche. */
-export const CAR_HALF_WIDTH = 1.6;
-/** Épaisseur des rebords, pris sur la largeur de la route. */
+/** Caisse : masse (kg), boîte de collision [demi-largeur, demi-hauteur, demi-longueur, hauteur du centre]. */
+export const MASS = 1000;
+export const HULL: readonly [number, number, number, number] = [1.25, 0.3, 2.4, 0.8];
+/** Centre de gravité bas : la voiture ne bascule pas en virage. */
+export const CENTER_OF_MASS_Y = 0.3;
+/** Inertie [tangage, lacet, roulis] : un roulis très résistant, pour une voiture qui reste à plat. */
+export const INERTIA: readonly [number, number, number] = [2600, 2600, 2600];
+export const HULL_FRICTION = 0.25;
+export const ROAD_FRICTION = 0.6;
+
+/** Suspension : longueur au repos, enfoncement au repos, raideur, amortissement, débattement (m). */
+export const SUSPENSION_REST = 0.35;
+export const SUSPENSION_SAG = 0.1;
+export const SUSPENSION_STIFFNESS = 65;
+export const SUSPENSION_COMPRESSION = 4.5;
+export const SUSPENSION_RELAXATION = 5.5;
+export const SUSPENSION_TRAVEL = 0.3;
+
+/** Épaisseur des parapets, pris sur la largeur de la route, et leur hauteur. */
 export const WALL_INSET = 0.6;
-/** Hauteur des rebords. */
 export const WALL_HEIGHT = 1;
-/** Vitesse conservée à chaque pas passé contre un rebord. */
-export const WALL_SPEED_KEEP = 0.994;
-/** Rebond quand on tape un rebord (part de la vitesse latérale renvoyée). */
+/** Contact avec un parapet : glisse et rebond. */
+export const WALL_FRICTION = 0.15;
 export const WALL_BOUNCE = 0.15;

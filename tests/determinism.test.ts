@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { initPhysics } from "../src/race/physics/car";
 import { IN_LEFT, IN_RIGHT, IN_THROTTLE } from "../src/race/physics/input";
 import { decodeInputs, encodeInputs, fromBase64, toBase64 } from "../src/race/replay/codec";
 import { Attempt, replayAttempt } from "../src/race/sim/attempt";
@@ -8,6 +9,7 @@ import { findRoute } from "../src/race/world/route";
 import { buildWorld } from "../src/race/world/world";
 
 const world = buildWorld(GRAND_SAUT);
+beforeAll(() => initPhysics());
 
 function drive(lookahead = 14, turnSpeed = 34) {
   const route = findRoute(GRAND_SAUT.blocks)!;

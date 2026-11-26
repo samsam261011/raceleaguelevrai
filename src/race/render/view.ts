@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import type { CarState } from "../physics/car";
+import { WHEELS, type CarState } from "../physics/car";
 import { formatTime } from "../session/session";
-import { VMAX } from "../physics/constants";
+import { SUSPENSION_REST, SUSPENSION_SAG, VMAX } from "../physics/constants";
 import type { World } from "../world/world";
 import { animateTrack, buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
@@ -53,7 +53,6 @@ export class RaceView {
   private readonly speedLines: SpeedLines | null;
   private wheelSpin = 0;
   private ghostSpin = 0;
-  private bodyPitch = 0;
   private readonly lighting: Lighting;
   private readonly shadowReach: number;
 
@@ -104,16 +103,12 @@ export class RaceView {
   }
 
   render(prev: CarState, cur: CarState, alpha: number, ghost: { prev: CarState; cur: CarState; time: number } | null, dt: number): void {
-    placeCar(this.car, prev, cur, alpha, dt);
+    placeCar(this.car, prev, cur, alpha);
     const speed = Math.hypot(cur.vx, cur.vz);
     // Rotation des roues : vitesse / rayon
-    this.wheelSpin += (speed / 0.42) * dt;
-    // Caisse vivante : elle se cabre un peu en accélérant, plonge au freinage (jamais de roulis)
-    const prevSpeed = Math.hypot(prev.vx, prev.vz);
-    const accel = (speed - prevSpeed) * 120;
-    const targetPitch = cur.grounded ? Math.max(-0.035, Math.min(0.025, -accel * 0.0009)) : 0;
-    this.bodyPitch += (targetPitch - this.bodyPitch) * (1 - Math.exp(-dt * 8));
-    this.car.body.rotation.x = this.bodyPitch;
+    this.wheelSpin += (cur.speed / 0.42) * dt;
+    const prevSpeed = prev.speed;
+    const accel = (cur.speed - prevSpeed) * 120;
     if (this.car.lights) this.car.lights.color.setRGB(accel < -20 ? 2.4 : 0.9, accel < -20 ? 0.25 : 0.08, accel < -20 ? 0.2 : 0.06);
     if (this.car.flames) {
       this.car.flames.visible = cur.boosting;
@@ -123,8 +118,8 @@ export class RaceView {
 
     if (ghost) {
       this.ghost.root.visible = true;
-      placeCar(this.ghost, ghost.prev, ghost.cur, alpha, dt);
-      this.ghostSpin += Math.hypot(ghost.cur.vx, ghost.cur.vz) * dt * 1.5;
+      placeCar(this.ghost, ghost.prev, ghost.cur, alpha);
+      this.ghostSpin += (ghost.cur.speed / 0.42) * dt;
       for (const w of this.ghost.wheels) w.rotation.x = this.ghostSpin;
       if (this.ghostLabelTime !== ghost.time) this.setGhostLabel(ghost.time);
       // Le fantôme s'efface quand il est sur la voiture, pour ne pas gêner la vue
@@ -140,7 +135,9 @@ export class RaceView {
     // La voiture occupe environ un sixième de la largeur de l'écran, dans le tiers bas ;
     // la piste remplit la moitié basse et on voit venir les virages.
     const p = this.car.root.position;
-    const yaw = this.car.root.rotation.y;
+    // La caméra suit la trajectoire (la direction où va la voiture), pas le nez de la voiture :
+    // en glisse ou en l'air, on voit la route qui arrive plutôt que le flanc de la voiture.
+    const yaw = speed > 4 && cur.speed > -1 ? Math.atan2(cur.vx, cur.vz) : cur.heading;
     if (!this.camReady) {
       this.camYaw = yaw;
       this.camY = p.y;
@@ -149,9 +146,9 @@ export class RaceView {
     let dy = yaw - this.camYaw;
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
-    this.camYaw += dy * (1 - Math.exp(-dt * 9));
+    this.camYaw += dy * (1 - Math.exp(-dt * 7));
     this.camY += (p.y - this.camY) * (1 - Math.exp(-dt * (cur.grounded ? 9 : 4)));
-    const k = Math.min(1.3, speed / VMAX);
+    const k = Math.min(1.3, Math.max(0, cur.speed) / VMAX);
     const fx = Math.sin(this.camYaw);
     const fz = Math.cos(this.camYaw);
     const back = CAM.back + k * CAM.backFast;
@@ -207,22 +204,24 @@ export class RaceView {
   }
 }
 
-function lerpAngle(a: number, b: number, t: number): number {
-  let d = b - a;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return a + d * t;
-}
+const qa = new THREE.Quaternion();
+const qb = new THREE.Quaternion();
+/** Correspondance entre les roues du modèle 3D (gauche avant, droite avant, gauche arrière, droite arrière) et celles de la physique. */
+const MESH_TO_SIM = [1, 0, 3, 2] as const;
 
-function placeCar(mesh: CarMesh, a: CarState, b: CarState, t: number, dt: number): void {
+function placeCar(mesh: CarMesh, a: CarState, b: CarState, t: number): void {
   mesh.root.position.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
-  mesh.root.rotation.y = lerpAngle(a.heading, b.heading, t);
-  // Tangage doux en montée et en descente ; jamais de roulis : la voiture reste à plat
-  const speed = Math.hypot(b.vx, b.vz) || 1;
-  const pitch = Math.max(-0.4, Math.min(0.4, -Math.atan2(b.vy, speed)));
-  mesh.root.rotation.x += (pitch - mesh.root.rotation.x) * (1 - Math.exp(-dt * 12));
-  mesh.root.rotation.z = 0;
-  // Roues avant braquées (bien visibles)
+  qa.set(a.qx, a.qy, a.qz, a.qw);
+  qb.set(b.qx, b.qy, b.qz, b.qw);
+  mesh.root.quaternion.slerpQuaternions(qa, qb, t);
+  // Roues : elles suivent la suspension
+  mesh.wheels.forEach((w, i) => {
+    const k = MESH_TO_SIM[i]!;
+    const spec = WHEELS[k];
+    const drop = a.wheels[k]!.drop + (b.wheels[k]!.drop - a.wheels[k]!.drop) * t;
+    if (w.parent) w.parent.position.y = spec.r + SUSPENSION_REST - SUSPENSION_SAG - drop;
+  });
+  // Roues avant braquées (bien visibles, même à haute vitesse où l'angle réel est faible)
   const steer = a.steer + (b.steer - a.steer) * t;
-  for (const p of mesh.steerPivots) p.rotation.y = -steer * 0.5;
+  for (const p of mesh.steerPivots) p.rotation.y = -steer * 0.45;
 }

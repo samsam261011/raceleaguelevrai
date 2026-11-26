@@ -1,7 +1,7 @@
 import "./ui/race.css";
 import { mountKeybindEditor } from "../shared/keybindEditor";
 import { Controls } from "./input/controls";
-import { copyCar, type CarState } from "./physics/car";
+import { copyCar, initPhysics, type CarState } from "./physics/car";
 import { DT } from "./physics/constants";
 import { IN_BRAKE, IN_DRIVE, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "./physics/input";
 import { RaceView } from "./render/view";
@@ -49,7 +49,8 @@ const hud = new Hud();
 const view = new RaceView($("scene") as HTMLCanvasElement, world, $("speedfx") as HTMLCanvasElement);
 
 let session = new Session();
-let attempt = new Attempt(world);
+/** Créée au chargement du moteur physique (voir la fin du fichier). */
+let attempt: Attempt;
 let ghost: { attempt: Attempt; inputs: number[]; time: number } | null = null;
 let phase: Phase = "ready";
 let phaseTimer = 0;
@@ -120,6 +121,9 @@ function refreshBest(): void {
 
 /** Prépare un essai : la voiture attend sur la ligne, le chrono partira à la première touche. */
 function beginAttempt(): void {
+  // Libère les mondes physiques de l'essai précédent et de son fantôme
+  attempt?.dispose();
+  ghost?.attempt.dispose();
   attempt = new Attempt(world);
   if (devRoute) devPilot = makeAutopilot(devRoute);
   const best = session.best;
@@ -149,7 +153,7 @@ function finishAttempt(): void {
 
 /** Recommencer : abandonne l'essai en cours (il compte s'il avait commencé) et remet la voiture sur la ligne. */
 function restart(): void {
-  if (phase === "results" || settingsOpen()) return;
+  if (phase === "results" || settingsOpen() || !attempt) return;
   if (phase === "running") {
     session.record({ time: null, splits: [], inputs: attempt.inputs.slice() });
     refreshBest();
@@ -229,5 +233,8 @@ function frame(now: number): void {
 hud.setBest(null, null);
 const pb = loadPersonalBest();
 if (pb !== null) $("pb").textContent = formatTime(pb);
-beginAttempt();
-requestAnimationFrame(frame);
+// Le moteur physique se charge une fois, puis la voiture se pose sur la ligne
+initPhysics().then(() => {
+  beginAttempt();
+  requestAnimationFrame(frame);
+});
