@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import "./menu.css";
 import { mountKeybindEditor } from "../shared/keybindEditor";
+import { menuMaps } from "./officialMaps";
 
 // Menu principal : profil, mode classé, salles, maps, menu latéral et décor 3D.
 // Les données (adversaires, classements, temps) sont des exemples tant que le serveur n'existe pas.
@@ -11,9 +12,10 @@ import { mountKeybindEditor } from "../shared/keybindEditor";
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   };
 
+  // Les 8 premières maps existent (tracé, médailles, records) ; les suivantes arrivent
+  const OFFICIAL = menuMaps();
   const MAPS = [
-    "Le Grand Saut", "Spirale", "Fil du Rasoir", "Double Boucle", "La Chute",
-    "Serpentin", "Pont Cassé", "Tremplin", "L'Épingle", "Vertige",
+    ...OFFICIAL.map((m) => m.name), "L'Épingle", "Vertige",
     "Les Marches", "Grand Huit", "Ricochet", "Le Tunnel", "Zigzag",
     "Plongeon", "La Vague", "Montagnes Russes", "Coupe-Gorge", "Dernier Virage"
   ];
@@ -425,15 +427,29 @@ import { mountKeybindEditor } from "../shared/keybindEditor";
     return { name: m, num: i + 1, diff, seed: 1000 + i * 31, auteur: base, or: base * 1.06, argent: base * 1.14, bronze: base * 1.28,
       mine: R() < 0.75 ? base * (1.08 + R() * 0.3) : null };
   });
-  // Map 1 : vraies médailles et vrai record enregistré par l'écran de course
-  {
+  // Maps jouables : vraies médailles, vrai record enregistré par l'écran de course, vraie difficulté
+  const DIFFS = [0, 0, 1, 1, 1, 1, 2, 2];
+  OFFICIAL.forEach((m, i) => {
     let pb = null;
-    try { const v = localStorage.getItem("raceleague.best.grand-saut"); pb = v ? Number(v) : null; } catch (e) { pb = null; }
-    Object.assign(MAPDATA[0], { auteur: 10.8, or: 11.4, argent: 12.5, bronze: 14.5, mine: pb });
-  }
+    try { const v = localStorage.getItem("raceleague.best." + m.id); pb = v ? Number(v) : null; } catch (e) { pb = null; }
+    Object.assign(MAPDATA[i], { id: m.id, diff: DIFFS[i] ?? 1, auteur: m.medals.auteur, or: m.medals.or, argent: m.medals.argent, bronze: m.medals.bronze, mine: pb, real: m });
+  });
   const ftime = (t) => { if (t == null) return "—"; const m = Math.floor(t / 60), sec = t - m * 60; return m + ":" + sec.toFixed(3).padStart(6, "0").replace(".", ","); };
   const medalOf = (d, t) => t == null ? null : t <= d.auteur ? "auteur" : t <= d.or ? "or" : t <= d.argent ? "argent" : t <= d.bronze ? "bronze" : null;
-  function trackSVG(seed, big) {
+  function realTrackSVG(m, seed, big) {
+    const hue = 28 + (seed % 7) * 9;
+    const g = '<defs><linearGradient id="rg' + seed + (big ? "b" : "") + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(' + hue + ' 45% 32%)"/><stop offset="1" stop-color="hsl(' + (hue + 250) % 360 + ' 40% 16%)"/></linearGradient></defs>';
+    const flag = (p, fill) => '<g transform="translate(' + p[0].toFixed(1) + " " + p[1].toFixed(1) + ')"><rect x="-5" y="-5" width="10" height="10" fill="' + fill + '" stroke="#14101f" stroke-width="2"/>' + (fill === "#fff" ? '<rect x="-5" y="-5" width="5" height="5" fill="#14101f"/><rect x="0" y="0" width="5" height="5" fill="#14101f"/>' : "") + "</g>";
+    return '<svg viewBox="0 0 200 150" preserveAspectRatio="xMidYMid meet">' + g + '<rect width="200" height="150" fill="url(#rg' + seed + (big ? "b" : "") + ')"/>' +
+      (big ? '<g opacity=".1" stroke="#fff">' + Array.from({ length: 9 }, (_, k) => '<path d="M0 ' + (k * 18) + ' H200"/>').join("") + "</g>" : "") +
+      '<path d="' + m.path + '" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="' + (big ? 9 : 16) + '" stroke-linejoin="round" stroke-linecap="round" transform="translate(2 4)"/>' +
+      '<path d="' + m.path + '" fill="none" stroke="#14101f" stroke-width="' + (big ? 8 : 15) + '" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '<path d="' + m.path + '" fill="none" stroke="#d9cfc6" stroke-width="' + (big ? 5 : 9) + '" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '<path d="' + m.path + '" fill="none" stroke="#ffb23e" stroke-width="1.2" stroke-dasharray="4 4"/>' +
+      flag(m.end, "#fff") + flag(m.start, "#5be08a") + "</svg>";
+  }
+  function trackSVG(seed, big, real) {
+    if (real) return realTrackSVG(real, seed, big);
     const R = rng(seed), n = 9, pts = [];
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2, r = 0.55 + R() * 0.4;
@@ -460,7 +476,7 @@ import { mountKeybindEditor } from "../shared/keybindEditor";
   MAPDATA.forEach((m, i) => {
     const b = document.createElement("button"); b.className = "map-item";
     const md = medalOf(m, m.mine);
-    b.innerHTML = '<span class="map-thumb">' + trackSVG(m.seed) + '</span><span><span class="mi-name">' + m.name + '</span><span class="mi-meta"><span class="dots3">' +
+    b.innerHTML = '<span class="map-thumb">' + trackSVG(m.seed, false, m.real) + '</span><span><span class="mi-name">' + m.name + '</span><span class="mi-meta"><span class="dots3">' +
       [0, 1, 2].map((k) => '<i class="' + (k <= m.diff ? "on" : "") + '"></i>').join("") + "</span>" + ftime(m.mine) + "</span></span>" +
       '<span class="medal ' + (md || "none") + '">' + (md ? (md === "auteur" ? "★" : md[0].toUpperCase()) : "") + "</span>";
     b.addEventListener("click", () => { closeMaps(true); openMap(i); });
@@ -509,7 +525,7 @@ import { mountKeybindEditor } from "../shared/keybindEditor";
     $("mapTitle").textContent = m.name;
     $("mapNum").textContent = "#" + m.num;
     $("mapDiff").textContent = DIFF[m.diff];
-    $("mapPreview").innerHTML = trackSVG(m.seed, true);
+    $("mapPreview").innerHTML = trackSVG(m.seed, true, m.real);
     $("mapRecord").textContent = ftime(m.mine);
     $("mapRecPos").textContent = m.mine ? "#" + fmt(1200 + Math.floor((m.mine / m.auteur - 1) * 90000)) + " mondial" : "";
     $("mapMedals").innerHTML = [["auteur", "Auteur"], ["or", "Or"], ["argent", "Argent"], ["bronze", "Bronze"]].map(([k, l]) =>
@@ -525,10 +541,9 @@ import { mountKeybindEditor } from "../shared/keybindEditor";
   $("mapBack").addEventListener("click", () => { $("mapPage").hidden = true; openMaps(); });
   let toastTO = 0;
   function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTO); toastTO = setTimeout(() => { t.hidden = true; }, 2200); }
-  // Seule la première map est jouable pour l'instant : elle ouvre la course.
-  const PLAYABLE = { 0: "grand-saut" };
+  // Les 8 premières maps sont jouables : elles ouvrent la course.
   $("soloBtn").addEventListener("click", () => {
-    const id = PLAYABLE[curMap];
+    const id = MAPDATA[curMap].id;
     if (id) location.href = "./race.html?map=" + id;
     else toast("Bientôt disponible");
   });

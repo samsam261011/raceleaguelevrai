@@ -37,20 +37,38 @@ pratique pour tester le fantôme et l'écran de fin.
 
 `editor.html` (bouton « Créer un circuit » dans Maps, ou « Éditeur de circuits » dans le menu ☰).
 
-- On pose des blocs librement sur une grille de cases de 20 m, à n'importe quelle hauteur (0 à 63, par crans de 2 m) :
-  départ, route, trois virages (serré, moyen 2×2, grand 3×3), pente, pente raide, tremplin, plaque, plaque en pente,
-  booster, checkpoint, arrivée. Rien n'oblige à suivre un chemin : ponts, sauts par-dessus le vide, routes côte à côte.
+- **Aimant** (activé par défaut, touche A) : on choisit une pièce et on l'approche d'une **flèche orange**
+  (un bout de piste libre). Elle s'y raccorde toute seule : bonne case, bonne rotation, bonne hauteur.
+  **Sens** (touche F) passe d'un raccord à l'autre : virage à gauche ou à droite, pente qui monte ou qui descend.
+  Loin des flèches, la pièce se pose librement sur la grille, à la hauteur choisie (0 à 63, par crans de 2 m).
+- Les pièces sont rangées par familles, avec une vignette 3D :
+  - Course : départ, checkpoint, arrivée, route.
+  - Virages : serré, moyen (2×2), grand (3×3), très grand (4×4), chicanes gauche et droite.
+  - Relief : pente, pied de pente, haut de pente, pente raide, longue pente, bosse, virages en montée gauche et droite, tremplin.
+    Pied de pente + Pente + Haut de pente font une côte sans aucune cassure, qu'on monte ou descend à fond.
+  - Double voie (40 m de large) : route, élargissement, virages double serré, double et grand double, pente,
+    départ, checkpoint et arrivée doubles.
+  - Figures : virage relevé, grand virage relevé, mur, looping.
+  - Plaques : plaque, plaque en pente.
 - Les piliers sont ajoutés tout seuls sous les blocs en hauteur. Deux routes posées côte à côte à la même hauteur
-  perdent le rebord entre elles et forment une route plus large. Les plaques et le booster n'ont pas de rebord.
-- Clic : poser · clic droit ou Gomme : effacer · R : tourner · 1 à 9 : choisir la pièce · Page haut/bas : hauteur ·
-  glisser : déplacer la vue · molette : zoom · Q/E : tourner la vue · Ctrl+Z : annuler.
-- Une pente prise dans l'autre sens descend. Tomber dans l'herbe fait recommencer l'essai.
+  perdent le rebord entre elles. Le statut signale les pièces trop proches l'une de l'autre en hauteur (moins de 6 m).
+- Clic : poser · clic droit ou Gomme : effacer · R : tourner · F : sens · C ou clic molette : copier la pièce visée ·
+  1 à 9 : choisir la pièce de la famille · Page haut/bas : hauteur · glisser : déplacer la vue · molette : zoom ·
+  Q/E : tourner la vue · V : tout voir · Ctrl+Z / Ctrl+Y : annuler / rétablir.
 - Il faut un seul départ et au moins une arrivée. Si plusieurs checkpoints sont posés, il faut tous les passer
-  (dans n'importe quel ordre) pour que l'arrivée compte.
+  (dans n'importe quel ordre) pour que l'arrivée compte. Le statut dit si le tracé est relié du départ à l'arrivée.
 - **Tester** lance la course sur le circuit. Ton meilleur temps devient le temps auteur, qui fixe les médailles
   (or +5 %, argent +15 %, bronze +35 %).
-- **Code** donne un texte `RL2-…` qui contient tout le circuit : à copier pour le garder ou l'envoyer.
+- **Circuits** : enregistrer ses circuits, en ouvrir un, partir d'une copie d'une des 8 maps du jeu,
+  et le code `RL2-…` qui contient tout le circuit (à copier pour le garder ou l'envoyer).
   `race.html?code=RL2-…` joue directement un circuit. Les anciens codes `RL1-…` ne s'ouvrent plus.
+
+## Les 8 maps officielles
+
+`src/race/world/maps/m1…m8` : Le Grand Saut, Spirale, Fil du Rasoir, Double Boucle, La Chute, Serpentin,
+Pont Cassé, Tremplin. Elles sont écrites pièce après pièce avec `Chain` (comme l'aimant de l'éditeur).
+`tests/maps.test.ts` vérifie que chacune est valide, sans pièces qui se gênent, et qu'elle se termine au
+pilote automatique dans son temps auteur (le temps auteur est le meilleur temps du pilote automatique).
 
 ## Autres commandes utiles
 
