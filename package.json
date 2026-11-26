@@ -1,0 +1,28 @@
+{
+  "name": "raceleague",
+  "private": true,
+  "version": "0.1.0",
+  "description": "RaceLeague : jeu de course 3D en duel, jouable dans le navigateur.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-deterministic-compat": "^0.21.0",
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.170.0",
+    "typescript": "5.8.3",
+    "vite": "6.3.5",
+    "vitest": "3.1.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

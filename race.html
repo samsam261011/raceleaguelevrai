@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>Course · RaceLeague</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" />
+  </head>
+  <body>
+    <canvas id="scene" aria-label="Course"></canvas>
+
+    <div class="hud">
+      <div class="top">
+        <div class="top-left">
+          <button class="icon-btn" id="menuBtn" aria-label="Retour au menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+          <div class="best-box">
+            <span class="medal none" id="bestMedal"></span>
+            <div><span class="lbl">Meilleur</span><b id="best">--:--,---</b></div>
+          </div>
+        </div>
+        <div class="chrono">
+          <span id="timer">0:00,000</span>
+          <span id="attempt">Essai 1/10</span>
+          <span class="map-name"><span id="mapName"></span> · record <span id="pb">--:--,---</span></span>
+        </div>
+        <div class="top-right">
+          <button class="icon-btn" id="settingsBtn" aria-label="Paramètres"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+          <button class="icon-btn" id="restartBtn" aria-label="Recommencer (R)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
+        </div>
+      </div>
+
+      <div class="split" id="split"></div>
+      <div class="center" id="center"></div>
+      <div class="speedo"><b id="speed">0</b><span>KM/H</span></div>
+
+      <div class="touch-pad left">
+        <button class="tbtn" id="tLeft" aria-label="Gauche"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+        <button class="tbtn" id="tRight" aria-label="Droite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+      </div>
+      <div class="touch-pad right">
+        <button class="tbtn small" id="tBrake">Frein</button>
+        <button class="tbtn gas" id="tGas">Gaz</button>
+      </div>
+
+      <div class="keys-hint">
+        <span><kbd>↑</kbd>Gaz</span><span><kbd>↓</kbd>Frein</span><span><kbd>← →</kbd>Tourner</span><span><kbd>R</kbd>Recommencer</span><span><kbd>M</kbd>Son</span>
+      </div>
+    </div>
+
+    <div class="results" id="results" hidden></div>
+
+    <div class="settings" id="settings" hidden>
+      <div class="settings-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <h2 id="settingsTitle">Paramètres</h2>
+        <label class="volume-row" for="volume">
+          <span>Volume</span>
+          <input type="range" id="volume" min="0" max="100" step="5" />
+          <b id="volumeValue">70 %</b>
+        </label>
+        <p class="settings-sub">Touche <kbd>M</kbd> : couper ou remettre le son.</p>
+        <h3 class="settings-h3">Commandes</h3>
+        <p class="settings-sub">Clique sur une touche puis appuie sur la nouvelle.</p>
+        <div id="keybinds"></div>
+        <button class="settings-close" id="closeSettings">Fermer</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/race/main.ts"></script>
+  </body>
+</html>
