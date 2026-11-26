@@ -1,13 +1,14 @@
 import "./ui/race.css";
 import { mountKeybindEditor } from "../shared/keybindEditor";
 import { Controls } from "./input/controls";
-import { copyCar, initPhysics, type CarState } from "./physics/car";
+import type { CarState } from "./physics/car";
 import { DT } from "./physics/constants";
 import { IN_BRAKE, IN_DRIVE, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "./physics/input";
 import { RaceView } from "./render/view";
 import { ATTEMPTS_PER_MATCH, formatDelta, formatTime, medalFor, Session } from "./session/session";
-import { Attempt } from "./sim/attempt";
-import { makeAutopilot } from "./sim/autopilot";
+import type { AttemptStatus } from "./sim/attempt";
+import type { FromSim, ToSim } from "./sim/protocol";
+import { CAR_FIELDS, cloneCar, unpackCar } from "./sim/snapshot";
 import { customMapId, decodeMap } from "./world/code";
 import { DEFAULT_MAP, MAPS } from "./world/maps";
 import { findRoute } from "./world/route";
@@ -52,9 +53,25 @@ const view = new RaceView($("scene") as HTMLCanvasElement, world, $("speedfx") a
 const ranked = params.has("classe");
 const newSession = (): Session => new Session(ranked ? ATTEMPTS_PER_MATCH : Infinity);
 let session = newSession();
-/** Créée au chargement du moteur physique (voir la fin du fichier). */
-let attempt: Attempt;
-let ghost: { attempt: Attempt; inputs: number[]; time: number } | null = null;
+/**
+ * La simulation tourne dans un Web Worker (sim/worker.ts) : physique à pas fixe, chrono, fantôme, replay.
+ * Ici, on garde seulement le dernier instantané reçu, pour l'afficher.
+ */
+const sim = new Worker(new URL("./sim/worker.ts", import.meta.url), { type: "module" });
+const toSim = (m: ToSim) => sim.postMessage(m);
+interface Live {
+  id: number;
+  tick: number;
+  status: AttemptStatus;
+  time: number;
+  prev: CarState;
+  car: CarState;
+  ghost: { prev: CarState; cur: CarState } | null;
+  splits: number[];
+}
+let live: Live | null = null;
+let attemptId = 0;
+let ghostTime: number | null = null;
 let phase: Phase = "ready";
 let phaseTimer = 0;
 let accumulator = 0;
@@ -124,13 +141,11 @@ function refreshBest(): void {
 
 /** Prépare un essai : la voiture attend sur la ligne, le chrono partira à la première touche. */
 function beginAttempt(): void {
-  // Libère les mondes physiques de l'essai précédent et de son fantôme
-  attempt?.dispose();
-  ghost?.attempt.dispose();
-  attempt = new Attempt(world);
-  if (devRoute) devPilot = makeAutopilot(devRoute);
+  attemptId++;
   const best = session.best;
-  ghost = best && best.time !== null ? { attempt: new Attempt(world), inputs: best.inputs, time: best.time } : null;
+  ghostTime = best && best.time !== null ? best.time : null;
+  // Le Worker libère l'essai précédent et son fantôme, et répond avec la voiture posée sur la ligne
+  toSim({ type: "begin", id: attemptId, ghost: best && best.time !== null ? best.inputs.slice() : null });
   view.snapCamera();
   hud.setAttempt(session.current, session.attempts);
   hud.setTime(0);
@@ -139,26 +154,52 @@ function beginAttempt(): void {
   phase = "ready";
 }
 
-function finishAttempt(): void {
-  const time = attempt.status === "finished" ? attempt.finishTime : null;
-  const { isBest, previousBest } = session.record({ time, splits: attempt.splits.slice(), inputs: attempt.inputs.slice() });
+/** Instantané reçu de la simulation. */
+sim.onmessage = (e: MessageEvent<FromSim>) => {
+  const m = e.data;
+  if (m.type === "ready") return void beginAttempt();
+  if (m.id !== attemptId) return;
+  const cars = m.cars;
+  const first = !live || live.id !== m.id;
+  live = {
+    id: m.id,
+    tick: m.tick,
+    status: m.status,
+    time: m.time,
+    prev: unpackCar(cars, 0),
+    car: unpackCar(cars, CAR_FIELDS),
+    ghost: m.ghost ? { prev: unpackCar(cars, 2 * CAR_FIELDS), cur: unpackCar(cars, 3 * CAR_FIELDS) } : null,
+    splits: first ? [] : live!.splits,
+  };
+  if (first) view.snapCamera();
+  for (const ev of m.events) {
+    live.splits.push(ev.time);
+    const ref = session.best?.splits?.[ev.index];
+    hud.showSplit(ev.index, ev.time, ref === undefined ? null : ev.time - ref);
+  }
+  if (m.end && phase === "running") finishAttempt(m.status, m.end);
+};
+
+function finishAttempt(status: AttemptStatus, end: { time: number | null; splits: number[]; inputs: Uint8Array }): void {
+  const time = status === "finished" ? end.time : null;
+  const { isBest, previousBest } = session.record({ time, splits: end.splits, inputs: Array.from(end.inputs) });
   refreshBest();
   if (time !== null) {
     savePersonalBest(time);
     const delta = previousBest === null ? "" : `<span class="delta ${time - previousBest <= 0 ? "ahead" : "behind"}">${formatDelta(time - previousBest)}</span>`;
     hud.flash(`<b class="big-time">${formatTime(time)}</b>${delta}${isBest ? '<span class="tag">Nouveau record</span>' : ""}`, 1500, "finish");
-  } else if (attempt.status === "fell") {
+  } else if (status === "fell") {
     hud.flash('<b class="big-word">Chute</b>', 900, "fail");
   }
   phase = "between";
-  phaseTimer = attempt.status === "finished" ? 1.6 : 0.9;
+  phaseTimer = status === "finished" ? 1.6 : 0.9;
 }
 
 /** Recommencer : abandonne l'essai en cours (il compte s'il avait commencé) et remet la voiture sur la ligne. */
 function restart(): void {
-  if (phase === "results" || settingsOpen() || !attempt) return;
+  if (phase === "results" || settingsOpen() || !live) return;
   if (phase === "running") {
-    session.record({ time: null, splits: [], inputs: attempt.inputs.slice() });
+    session.record({ time: null, splits: [], inputs: [] });
     refreshBest();
   }
   if (session.done) return showResults();
@@ -184,21 +225,7 @@ function showResults(): void {
 }
 
 // En développement seulement : race.html?pilote ajoute le pilote automatique au gaz (pour tester le fantôme).
-const devRoute = import.meta.env.DEV && params.has("pilote") ? findRoute(mapDef.blocks) : null;
-let devPilot = devRoute ? makeAutopilot(devRoute) : null;
-
-function tick(): void {
-  const ev = attempt.step(devPilot && (controls.bits & IN_THROTTLE) ? devPilot(attempt.car) : controls.bits);
-  if (ghost && ghost.attempt.status === "running") {
-    const i = ghost.attempt.tick;
-    if (i < ghost.inputs.length) ghost.attempt.step(ghost.inputs[i]!);
-  }
-  if (ev) {
-    const ref = session.best?.splits?.[ev.index];
-    hud.showSplit(ev.index, ev.time, ref === undefined ? null : ev.time - ref);
-  }
-  if (attempt.status !== "running") finishAttempt();
-}
+const devPilot = import.meta.env.DEV && params.has("pilote");
 
 let last = performance.now();
 function frame(now: number): void {
@@ -211,12 +238,14 @@ function frame(now: number): void {
     accumulator = 0;
   }
   if (phase === "running") {
+    // Pas fixe : on demande au Worker autant de pas de 1/120 s que le temps écoulé en contient
     accumulator += dt;
-    while (accumulator >= DT && phase === "running") {
-      tick();
-      accumulator -= DT;
+    const ticks = Math.floor(accumulator / DT);
+    if (ticks > 0) {
+      accumulator -= ticks * DT;
+      toSim({ type: "step", id: attemptId, ticks, bits: controls.bits });
     }
-    hud.setTime(attempt.time);
+    if (live) hud.setTime(live.time);
   } else if (phase === "between") {
     phaseTimer -= dt;
     if (phaseTimer <= 0) {
@@ -225,19 +254,20 @@ function frame(now: number): void {
     }
   }
 
-  const alpha = phase === "running" ? accumulator / DT : 1;
-  const g = ghost && ghost.attempt.tick > 0 ? { prev: ghost.attempt.prev, cur: ghost.attempt.car, time: ghost.time } : null;
-  const prev: CarState = attempt.tick > 0 ? attempt.prev : copyCar(attempt.car);
-  view.render(prev, attempt.car, Math.min(1, alpha), g, dt);
-  hud.setSpeed(Math.hypot(attempt.car.vx, attempt.car.vz));
+  if (live) {
+    // Entre les deux derniers pas reçus, selon le temps déjà écoulé vers le pas suivant
+    const alpha = phase === "running" ? accumulator / DT : 1;
+    const g = live.ghost && ghostTime !== null ? { prev: live.ghost.prev, cur: live.ghost.cur, time: ghostTime } : null;
+    const prev = live.tick > 0 ? live.prev : cloneCar(live.car);
+    view.render(prev, live.car, Math.min(1, alpha), g, dt);
+    hud.setSpeed(Math.hypot(live.car.vx, live.car.vz));
+  }
   requestAnimationFrame(frame);
 }
 
 hud.setBest(null, null);
 const pb = loadPersonalBest();
 if (pb !== null) $("pb").textContent = formatTime(pb);
-// Le moteur physique se charge une fois, puis la voiture se pose sur la ligne
-initPhysics().then(() => {
-  beginAttempt();
-  requestAnimationFrame(frame);
-});
+// La simulation charge le moteur physique, construit la piste, puis la voiture se pose sur la ligne
+toSim({ type: "init", map: mapDef, autopilot: devPilot });
+requestAnimationFrame(frame);

@@ -8,7 +8,7 @@ import type { MapDefinition } from "../world";
 export const LABO: MapDefinition = {
   id: "labo",
   name: "Labo physique",
-  medals: { auteur: 30, or: 32, argent: 36, bronze: 42 },
+  medals: { auteur: 20, or: 22, argent: 25, bronze: 30 },
   blocks: [
     { kind: "depart", x: 0, z: 0, level: 0, rot: 0 },
     { kind: "route", x: 0, z: 1, level: 0, rot: 0 },

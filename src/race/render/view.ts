@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { WHEELS, type CarState } from "../physics/car";
+import type { CarState } from "../physics/car";
 import { formatTime } from "../session/session";
-import { SUSPENSION_REST, SUSPENSION_SAG, VMAX } from "../physics/constants";
+import { SUSPENSION_REST, SUSPENSION_SAG, VMAX, WHEELS } from "../physics/constants";
 import type { World } from "../world/world";
 import { buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
