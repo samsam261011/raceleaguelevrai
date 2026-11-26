@@ -7,6 +7,7 @@ import { buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
 import { DrivingEffects } from "./effects";
 import { buildEnvironment, buildSky, enableSunShadows, followSunShadow, shadowQuality, type Lighting } from "./environment";
+import { AdaptiveResolution, loadGraphics, pixelRatioFor, type Graphics } from "../../shared/graphics";
 
 /** Réglages de la caméra de course (en mètres et en degrés). Aucun effet de vitesse : la caméra reste fixe derrière la voiture. */
 const CAM = {
@@ -49,22 +50,26 @@ export class RaceView {
   private camY = 0;
   private camReady = false;
   private readonly lighting: Lighting;
-  private readonly shadowReach: number;
+  private shadowReach = 55;
+  /** Éléments du décor (falaises, rochers…) qui projettent une ombre en qualité détaillée seulement. */
+  private readonly decorCasters: THREE.Object3D[] = [];
+  private readonly adaptive: AdaptiveResolution;
+  graphics: Graphics;
 
   constructor(canvas: HTMLCanvasElement, world: World) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Tone mapping ACES : blancs qui ne brûlent pas, couleurs plus riches
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
-    // Ombres : une seule carte qui suit la voiture, adoucie (PCF), plus petite sur les machines modestes
-    const q = shadowQuality();
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.lighting = buildEnvironment(this.scene, world);
-    enableSunShadows(this.lighting.sun, q.mapSize, q.radius);
-    this.shadowReach = q.radius;
+    this.scene.traverse((o) => {
+      if (o.castShadow) this.decorCasters.push(o);
+    });
+    this.graphics = loadGraphics();
+    this.adaptive = new AdaptiveResolution(pixelRatioFor(this.graphics), (r) => this.setPixelRatio(r));
+    this.applyGraphics(this.graphics);
     // Circuit fusionné : une géométrie par matériau pour toute la piste
     this.scene.add(buildWorldMesh(world, true));
     // Reflets de la carrosserie : une petite carte d'environnement tirée du ciel (calculée une fois)
@@ -80,6 +85,38 @@ export class RaceView {
     this.scene.add(this.car.root, this.ghost.root, this.fx.group);
     this.resize();
     window.addEventListener("resize", () => this.resize());
+    if (import.meta.env.DEV) (window as unknown as { __view: RaceView }).__view = this;
+  }
+
+  /**
+   * Change la qualité graphique, en pleine course si besoin.
+   * Fluide : résolution normale (baisse toute seule si l'ordinateur peine), ombres nettes limitées à la piste et à la voiture.
+   * Détaillé : double densité de pixels, ombres douces plus fines, le décor projette aussi son ombre.
+   */
+  applyGraphics(g: Graphics): void {
+    this.graphics = g;
+    const detailed = g === "detaille";
+    const q = detailed ? shadowQuality() : { mapSize: 1024, radius: 55 };
+    const sun = this.lighting.sun;
+    this.renderer.shadowMap.type = detailed ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    if (sun.shadow.map) {
+      sun.shadow.map.dispose();
+      sun.shadow.map = null;
+    }
+    enableSunShadows(sun, q.mapSize, q.radius);
+    this.shadowReach = q.radius;
+    for (const o of this.decorCasters) o.castShadow = detailed;
+    // Le type d'ombre change le code des matériaux : on les fait recompiler
+    this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (m) for (const mat of Array.isArray(m) ? m : [m]) mat.needsUpdate = true;
+    });
+    this.adaptive.reset(pixelRatioFor(g));
+  }
+
+  private setPixelRatio(r: number): void {
+    this.renderer.setPixelRatio(r);
+    this.resize();
   }
 
   resize(): void {
@@ -155,6 +192,7 @@ export class RaceView {
     followSunShadow(this.lighting.sun, p.x + fx * ahead, this.camY, p.z + fz * ahead);
     this.fx.update(dt);
     this.renderer.render(this.scene, this.camera);
+    if (this.graphics === "fluide") this.adaptive.frame(dt);
   }
 
   private setGhostLabel(time: number): void {

@@ -9,6 +9,7 @@ import { MAX_LEVEL, PALETTE_GROUPS, PIECES, SIDE_DIR, STEP, TILE, type PieceKind
 import { findRoute, openPorts, placementsAt, type BlockPort } from "../race/world/route";
 import { blockCells, blockClashes, blocksOverlap, buildWorld, GROUND_Y, validateMap, type Block } from "../race/world/world";
 import { exampleMap } from "./examples";
+import { loadGraphics, pixelRatioFor } from "../shared/graphics";
 import { renderThumbs } from "./thumbs";
 
 /*
@@ -68,7 +69,7 @@ function loadInitialMap(): EditorMap {
 // ---------- Scène ----------
 const canvas = $("scene") as unknown as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(pixelRatioFor(loadGraphics()));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene();
