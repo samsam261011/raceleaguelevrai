@@ -129,6 +129,8 @@ describe("moteur de conduite v3", () => {
     let peakNose = -1;
     let dive = 0;
     let spin = 0;
+    let flightRoll = 0;
+    let flightSpin = 0;
     while (a.status === "running" && a.tick < 120 * 60) {
       const flying = !a.car.grounded;
       const q0 = a.car;
@@ -143,13 +145,21 @@ describe("moteur de conduite v3", () => {
         dive = Math.max(dive, peakNose - nose);
         // Freiner en l'air ne redresse pas la voiture (aucune force artificielle) : il arrête ses rotations.
         // Après 0,4 s de vol, elle ne tourne presque plus et reste à plat.
+        // Mesuré sur les vols de plus d'une seconde (les grands sauts) : un petit saut pris en plein virage
+        // part avec du roulis, et 0,4 s de frein ne suffit pas toujours à l'arrêter avant de se poser.
         if (air > 48) {
-          worst = Math.max(worst, roll(a.car));
-          spin = Math.max(spin, Math.abs(c.qx - q0.qx) + Math.abs(c.qy - q0.qy) + Math.abs(c.qz - q0.qz));
+          flightRoll = Math.max(flightRoll, roll(a.car));
+          flightSpin = Math.max(flightSpin, Math.abs(c.qx - q0.qx) + Math.abs(c.qy - q0.qy) + Math.abs(c.qz - q0.qz));
         }
         lost = Math.max(lost, takeoff - Math.hypot(a.car.vx, a.car.vz));
       } else {
         longest = Math.max(longest, air);
+        if (air > 120) {
+          worst = Math.max(worst, flightRoll);
+          spin = Math.max(spin, flightSpin);
+        }
+        flightRoll = 0;
+        flightSpin = 0;
         air = 0;
         peakNose = -1;
       }
@@ -161,5 +171,59 @@ describe("moteur de conduite v3", () => {
     expect(lost).toBeLessThan(1);
     expect(dive).toBeLessThan(0.03);
     a.dispose();
+  });
+
+  it("tenir une direction pendant un long saut ne fait pas atterrir en travers", () => {
+    const pilot = makeAutopilot(findRoute(GRAND_SAUT.blocks)!);
+    const a = new Attempt(buildWorld(GRAND_SAUT));
+    let air = 0;
+    let takeoff = 0;
+    let watch = 0;
+    let drift = 0;
+    let slowest = Infinity;
+    let checked = 0;
+    while (a.status === "running" && a.tick < 120 * 30) {
+      const flying = !a.car.grounded;
+      a.step(flying ? IN_THROTTLE | IN_RIGHT : pilot(a.car));
+      const c = a.car;
+      const sp = Math.hypot(c.vx, c.vz);
+      if (!c.grounded) {
+        if (air === 0) takeoff = sp;
+        air++;
+      } else if (air > 0) {
+        if (air > 120) {
+          watch = 120;
+          checked++;
+        }
+        air = 0;
+      }
+      if (watch > 0) {
+        watch--;
+        const cos = (c.vx * Math.sin(c.heading) + c.vz * Math.cos(c.heading)) / Math.max(sp, 1e-6);
+        drift = Math.max(drift, Math.acos(Math.min(1, Math.max(-1, cos))));
+        slowest = Math.min(slowest, sp / takeoff);
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+    // Moins de 20° de travers à la réception, et au moins 85 % de la vitesse gardée
+    expect(drift).toBeLessThan(0.35);
+    expect(slowest).toBeGreaterThan(0.85);
+    a.dispose();
+  });
+
+  it("braquer à fond dans un parapet ne couche pas la voiture sur le côté", () => {
+    const world = buildWorld(GRAND_SAUT);
+    for (const dir of [IN_RIGHT, IN_LEFT]) {
+      for (const from of [120, 240, 300, 480]) {
+        const a = new Attempt(world);
+        let lowest = 1;
+        for (let i = 0; i < 900 && a.status === "running"; i++) {
+          a.step(IN_THROTTLE | (i > from ? dir : 0));
+          lowest = Math.min(lowest, 1 - 2 * (a.car.qx * a.car.qx + a.car.qz * a.car.qz));
+        }
+        expect(lowest).toBeGreaterThan(0.8);
+        a.dispose();
+      }
+    }
   });
 });

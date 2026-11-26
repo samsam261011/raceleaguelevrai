@@ -248,5 +248,22 @@ hud.setBest(null, null);
 const pb = loadPersonalBest();
 if (pb !== null) $("pb").textContent = formatTime(pb);
 // Le moteur physique se charge une fois, puis la voiture se pose sur la ligne
-initPhysics().then(beginAttempt);
+initPhysics().then(() => {
+  warmUp();
+  view.warmUp();
+  beginAttempt();
+});
+
+/**
+ * Échauffement, pendant le chargement : un essai fantôme roule quelques secondes au pilote automatique puis est jeté.
+ * Sans lui, le tout premier pas de physique (au premier appui) prenait près de 100 ms, et chaque nouvelle situation
+ * (premier saut, premier parapet…) bloquait une image le temps que le navigateur optimise le code.
+ */
+function warmUp(): void {
+  const route = findRoute(mapDef.blocks);
+  const a = new Attempt(world);
+  const drive = route ? makeAutopilot(route) : () => IN_THROTTLE;
+  for (let i = 0; i < 120 * 12 && a.status === "running"; i++) a.step(i % 600 > 560 ? IN_BRAKE | IN_LEFT : drive(a.car));
+  a.dispose();
+}
 requestAnimationFrame(frame);

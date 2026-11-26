@@ -9,8 +9,8 @@ import { buildEnvironment, buildSky, enableSunShadows, followSunShadow, shadowQu
 
 /** Réglages de la caméra de course (en mètres et en degrés). Aucun effet de vitesse : la caméra reste fixe derrière la voiture. */
 const CAM = {
-  back: 7.2,
-  height: 2.7,
+  back: 8.6,
+  height: 3.0,
   /** Point visé : loin devant, juste au-dessus de la route. */
   ahead: 30,
   aim: 1.3,
@@ -87,6 +87,15 @@ export class RaceView {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Prépare tous les shaders d'avance (fantôme compris), pour ne pas bloquer une image quand un objet apparaît en course. */
+  warmUp(): void {
+    const ghostWas = this.ghost.root.visible;
+    this.ghost.root.visible = true;
+    this.renderer.compile(this.scene, this.camera);
+    this.renderer.render(this.scene, this.camera);
+    this.ghost.root.visible = ghostWas;
+  }
+
   /** Remet la caméra derrière la voiture (au début d'un essai). */
   snapCamera(): void {
     this.camReady = false;
@@ -94,7 +103,6 @@ export class RaceView {
 
   render(prev: CarState, cur: CarState, alpha: number, ghost: { prev: CarState; cur: CarState; time: number } | null, dt: number): void {
     placeCar(this.car, prev, cur, alpha);
-    const speed = Math.hypot(cur.vx, cur.vz);
     const prevSpeed = prev.speed;
     const accel = (cur.speed - prevSpeed) * 120;
     if (this.car.lights) this.car.lights.color.setRGB(accel < -20 ? 2.4 : 0.9, accel < -20 ? 0.25 : 0.08, accel < -20 ? 0.2 : 0.06);
@@ -116,9 +124,10 @@ export class RaceView {
     // La voiture occupe environ un sixième de la largeur de l'écran, dans le tiers bas ;
     // la piste remplit la moitié basse et on voit venir les virages.
     const p = this.car.root.position;
-    // La caméra suit la trajectoire (la direction où va la voiture), pas le nez de la voiture :
-    // en glisse ou en l'air, on voit la route qui arrive plutôt que le flanc de la voiture.
-    const yaw = speed > 4 && cur.speed > -1 ? Math.atan2(cur.vx, cur.vz) : cur.heading;
+    // La caméra est accrochée derrière la voiture : elle suit son nez (position affichée, donc lissée entre deux pas),
+    // avec un léger retard. La voiture reste au même endroit de l'écran, même quand elle glisse.
+    const rq = this.car.root.quaternion;
+    const yaw = Math.atan2(2 * (rq.x * rq.z + rq.w * rq.y), 1 - 2 * (rq.x * rq.x + rq.y * rq.y));
     if (!this.camReady) {
       this.camYaw = yaw;
       this.camY = p.y;
@@ -127,7 +136,7 @@ export class RaceView {
     let dy = yaw - this.camYaw;
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
-    this.camYaw += dy * (1 - Math.exp(-dt * 7));
+    this.camYaw += dy * (1 - Math.exp(-dt * 10));
     // Hauteur : la caméra suit la voiture de près, et ne descend jamais sous elle (on ne voit jamais le dessous).
     // En descente, elle garde un léger retard vers le haut, ce qui montre le dessus de la voiture.
     const rising = p.y > this.camY;

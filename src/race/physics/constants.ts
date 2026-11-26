@@ -52,6 +52,12 @@ export const COUNTER_STEER_MAX = 0.25;
 /** En l'air : vitesse de lacet visée au volant (rad/s) et réactivité (par seconde). */
 export const AIR_STEER = 0.7;
 export const AIR_STEER_RESPONSE = 3;
+/**
+ * En l'air, le volant ne peut pas écarter le nez de la trajectoire de plus de cet angle (sinus de ~12°).
+ * Sans limite, tenir une touche pendant un long saut faisait tourner la voiture de 60 à 80° :
+ * elle se posait en travers et perdait presque toute sa vitesse.
+ */
+export const AIR_YAW_LIMIT = 0.2;
 /** En l'air : amortissement du tangage et du roulis (par seconde), et de toutes les rotations quand on freine. */
 export const AIR_PITCH_DAMPING = 30;
 export const AIR_ROLL_DAMPING = 4;
@@ -104,6 +110,12 @@ export const WALL_BOUNCE = 0.15;
 export const WALL_IMPACT = 0.4;
 /** Vitesse conservée à chaque pas passé contre un parapet. */
 export const WALL_SPEED_KEEP = 0.994;
+/**
+ * Contre un parapet : part du roulis gardée à chaque pas. La caisse de collision est une boîte simple, plus haute
+ * que les flancs et les roues d'une vraie voiture : le choc la frappait au-dessus du centre de gravité et la
+ * couchait sur le côté. Une vraie voiture touche le mur avec ses roues et ses boucliers, à hauteur du centre de gravité.
+ */
+export const WALL_ROLL_KEEP = 0.5;
 
 /** Roues dans le repère de la voiture (+x à gauche, +z vers l'avant) : avant gauche, avant droite, arrière gauche, arrière droite. Rayon et largeur (m). */
 export const WHEELS = [

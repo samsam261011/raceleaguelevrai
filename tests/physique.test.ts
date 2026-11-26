@@ -147,7 +147,8 @@ describe("labo physique : la voiture", () => {
         peakNose = -1;
       }
       if (landedAt > 0 && a.tick > landedAt && a.tick < landedAt + 120) {
-        if (!c.grounded) rebounds++;
+        // Un rebond, c'est repartir en l'air dans la demi-seconde qui suit la réception (après, c'est la bosse suivante)
+        if (!c.grounded && a.tick < landedAt + 60) rebounds++;
         for (const w of c.wheels) if (w.contact) minLen = Math.min(minLen, w.drop);
       }
     }

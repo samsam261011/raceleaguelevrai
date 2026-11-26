@@ -192,6 +192,14 @@ export class CarSim {
       // Frotter un parapet coûte du temps : la voiture perd un peu de vitesse à chaque pas de contact
       const lv = this.body.linvel();
       this.body.setLinvel({ x: lv.x * C.WALL_SPEED_KEEP, y: lv.y * C.WALL_SPEED_KEEP, z: lv.z * C.WALL_SPEED_KEEP }, true);
+      // Le choc ne couche pas la voiture : on retire l'essentiel du roulis (rotation autour de l'axe avant-arrière)
+      const q = this.body.rotation();
+      const fx = 2 * (q.x * q.z + q.w * q.y);
+      const fy = 2 * (q.y * q.z - q.w * q.x);
+      const fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+      const w = this.body.angvel();
+      const wf = (w.x * fx + w.y * fy + w.z * fz) * (1 - C.WALL_ROLL_KEEP);
+      this.body.setAngvel({ x: w.x - fx * wf, y: w.y - fy * wf, z: w.z - fz * wf }, true);
     }
     this.rightIfStuck();
     const t = this.body.translation();
@@ -314,7 +322,14 @@ export class CarSim {
       const braking = has(input, IN_BRAKE);
       const kp = clamp((braking ? C.AIR_BRAKE_DAMPING : C.AIR_PITCH_DAMPING) * dt, 0, 1);
       const kr = clamp((braking ? C.AIR_BRAKE_DAMPING : C.AIR_ROLL_DAMPING) * dt, 0, 1);
-      const yawWant = braking ? 0 : -this.steer * C.AIR_STEER;
+      let yawWant = braking ? 0 : -this.steer * C.AIR_STEER;
+      // Écart entre le nez et la trajectoire (vus de dessus), en sinus ; le volant ne peut pas l'agrandir au-delà de la limite
+      const fh = Math.sqrt(fx * fx + fz * fz);
+      const vh = Math.sqrt(lv.x * lv.x + lv.z * lv.z);
+      if (fh > 0.1 && vh > 4) {
+        const off = (fz * lv.x - fx * lv.z) / (fh * vh);
+        if (yawWant * off < 0) yawWant *= clamp(1 - (off < 0 ? -off : off) / C.AIR_YAW_LIMIT, 0, 1);
+      }
       const ky = clamp((braking ? C.AIR_BRAKE_DAMPING : C.AIR_STEER_RESPONSE) * dt, 0, 1);
       const dl = -wl * kp;
       const df = -wf * kr;
