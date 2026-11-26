@@ -3,7 +3,7 @@ import { WHEELS, type CarState } from "../physics/car";
 import { formatTime } from "../session/session";
 import { SUSPENSION_REST, SUSPENSION_SAG, VMAX } from "../physics/constants";
 import type { World } from "../world/world";
-import { animateTrack, buildWorldMesh } from "./blockMesh";
+import { buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
 import { buildEnvironment, buildSky, enableSunShadows, followSunShadow, shadowQuality, type Lighting } from "./environment";
 import { SpeedLines } from "./speedLines";
@@ -110,10 +110,6 @@ export class RaceView {
     const prevSpeed = prev.speed;
     const accel = (cur.speed - prevSpeed) * 120;
     if (this.car.lights) this.car.lights.color.setRGB(accel < -20 ? 2.4 : 0.9, accel < -20 ? 0.25 : 0.08, accel < -20 ? 0.2 : 0.06);
-    if (this.car.flames) {
-      this.car.flames.visible = cur.boosting;
-      if (cur.boosting) this.car.flames.scale.set(1, 1, 0.8 + Math.random() * 0.5);
-    }
     for (const w of this.car.wheels) w.rotation.x = this.wheelSpin;
 
     if (ghost) {
@@ -160,17 +156,16 @@ export class RaceView {
     const sy = Math.sin(this.shakeT * 53 + 1) * shake;
     this.camera.position.set(p.x - fx * back + fz * sx, this.camY + height + sy, p.z - fz * back - fx * sx);
     this.camera.lookAt(p.x + fx * CAM.ahead, this.camY + CAM.aim, p.z + fz * CAM.ahead);
-    // L'angle de vue s'élargit avec la vitesse, et un peu plus en boost
-    const fov = CAM.fov + k * CAM.fovFast + (cur.boosting ? 5 : 0);
+    // L'angle de vue s'élargit avec la vitesse
+    const fov = CAM.fov + k * CAM.fovFast;
     if (Math.abs(this.camera.fov - fov) > 0.05) {
       this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-dt * 5));
       this.camera.updateProjectionMatrix();
     }
-    animateTrack(dt);
     // La zone d'ombre est centrée un peu devant la voiture : c'est là que regarde la caméra
     const ahead = this.shadowReach * 0.45;
     followSunShadow(this.lighting.sun, p.x + fx * ahead, this.camY, p.z + fz * ahead);
-    this.speedLines?.draw(k, cur.boosting, dt);
+    this.speedLines?.draw(k, dt);
     this.renderer.render(this.scene, this.camera);
   }
 

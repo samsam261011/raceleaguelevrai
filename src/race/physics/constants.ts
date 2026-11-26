@@ -18,11 +18,8 @@ export const REVERSE_ACCEL = 14;
 export const REVERSE_MAX = 12;
 /** Frottements quand on roule (fraction de vitesse perdue par pas de jeu). */
 export const ROLL_DRAG = 0.001;
-/** Au-dessus de VMAX (après un booster), la vitesse redescend doucement (par seconde). */
+/** Au-dessus de VMAX (en descente), la vitesse redescend doucement (par seconde). */
 export const OVERSPEED_DRAG = 0.35;
-/** Booster : poussée (m/s²) et vitesse max atteignable. */
-export const BOOST_ACCEL = 70;
-export const VMAX_BOOST = 100;
 
 /** Vitesse de rotation max visée au volant (rad/s) ; l'angle des roues en découle selon la vitesse. */
 export const STEER_MAX = 1.3;
@@ -39,7 +36,9 @@ export const GRAVITY = 26;
 /** Appui aérodynamique : accélération vers la piste par m/s de vitesse. */
 export const DOWNFORCE = 0.3;
 /** Contrôle en l'air : vitesse de rotation visée au volant (rad/s), et redressement automatique. */
-export const AIR_STEER = 1.2;
+export const AIR_STEER = 0.35;
+/** Vitesse à laquelle la rotation en l'air rejoint celle demandée (par seconde) : basse = doux. */
+export const AIR_STEER_RESPONSE = 2.5;
 export const AIR_LEVEL = 3;
 export const ANGULAR_DAMPING = 0.6;
 

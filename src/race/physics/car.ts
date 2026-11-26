@@ -50,7 +50,6 @@ export interface CarState {
   wheels: WheelState[];
   grounded: boolean;
   onWall: boolean;
-  boosting: boolean;
   fell: boolean;
 }
 
@@ -74,7 +73,6 @@ export class CarSim {
   private readonly surfaceBlock = new Map<number, number>();
   private readonly walls = new Set<number>();
   private steer = 0;
-  private boosting = false;
   private onWall = false;
   private fell = false;
   state: CarState;
@@ -143,12 +141,6 @@ export class CarSim {
     const dt = C.DT / C.SUBSTEPS;
     for (let k = 0; k < C.SUBSTEPS; k++) this.substep(input, dt);
 
-    this.boosting = false;
-    for (let i = 0; i < 4; i++) {
-      const g = this.vehicle.wheelGroundObject(i);
-      const b = g ? this.surfaceBlock.get(g.handle) : undefined;
-      if (b !== undefined && this.world.blocks[b]!.def.boost) this.boosting = true;
-    }
     this.rw.contactPairsWith(this.hull, (other) => {
       if (!this.walls.has(other.handle)) return;
       this.rw.contactPair(this.hull, other, (m) => {
@@ -188,7 +180,6 @@ export class CarSim {
       if (vf > 0.5) brakeAll = C.BRAKE;
       else if (vf > -C.REVERSE_MAX) drive -= C.REVERSE_ACCEL;
     }
-    if (this.boosting && vf < C.VMAX_BOOST) drive += C.BOOST_ACCEL;
     for (let i = 0; i < 4; i++) {
       const rear = i >= 2;
       v.setWheelEngineForce(i, (rear ? (drive * C.MASS) / 2 : 0) - (brakeAll * C.MASS) / 4);
@@ -208,9 +199,9 @@ export class CarSim {
       // Appui : la voiture colle d'autant plus à la piste qu'elle va vite
       const push = C.MASS * C.DOWNFORCE * speedAbs * dt * (contacts / 4);
       b.applyImpulse({ x: -ux * push, y: -uy * push, z: -uz * push }, true);
-      // Frottements et retour progressif sous la vitesse max après un booster
+      // Frottements et retour progressif sous la vitesse max (après une descente)
       let drag = C.ROLL_DRAG / C.SUBSTEPS;
-      if (vf > C.VMAX && !this.boosting) drag += (C.OVERSPEED_DRAG * dt * (vf - C.VMAX)) / vf;
+      if (vf > C.VMAX) drag += (C.OVERSPEED_DRAG * dt * (vf - C.VMAX)) / vf;
       b.setLinvel({ x: lv.x - fx * vf * drag, y: lv.y - fy * vf * drag, z: lv.z - fz * vf * drag }, true);
     } else {
       // En l'air : on peut orienter un peu la voiture, et elle se remet doucement à plat
@@ -221,7 +212,7 @@ export class CarSim {
       const lz = ux;
       const k = C.AIR_LEVEL * dt;
       const cur = w.x * ux + w.y * uy + w.z * uz;
-      const dy = (yaw - cur) * clamp(8 * dt, 0, 1);
+      const dy = (yaw - cur) * clamp(C.AIR_STEER_RESPONSE * dt, 0, 1);
       b.setAngvel({ x: w.x + ux * dy + lx * k, y: w.y + uy * dy, z: w.z + uz * dy + lz * k }, true);
     }
 
@@ -267,7 +258,6 @@ export class CarSim {
       wheels,
       grounded,
       onWall: this.onWall,
-      boosting: this.boosting,
       fell: this.fell,
     };
   }

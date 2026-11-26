@@ -364,7 +364,6 @@ const GLYPHS: Record<PieceKind, string> = {
   tremplin: `<path d="M4 32h12q10 0 16-12v12z" fill="${ROAD}"/><path d="M34 14q2-4 4-5" stroke="#ffb23e" stroke-width="2" fill="none" stroke-linecap="round" stroke-dasharray="2 3"/>`,
   plaque: `<rect x="6" y="6" width="28" height="28" rx="2" fill="#b9bcc2"/><path d="M20 6v28M6 20h28" stroke="#8d9097" stroke-width="1.5"/>`,
   plaquePente: `<path d="M4 32h10l14-10h8v10z" fill="#b9bcc2"/>`,
-  booster: `<rect x="8" y="4" width="24" height="32" rx="2" fill="#1e2a4a"/><path d="M12 22l8-6 8 6v4l-8-6-8 6zM12 32l8-6 8 6v-4l-8-6-8 6z" fill="#35e0ff"/>`,
   checkpoint: `<rect x="12" y="4" width="16" height="32" rx="2" fill="${ROAD}"/><path d="M8 20h24" stroke="#ffb23e" stroke-width="4"/><path d="M9 14v12M31 14v12" stroke="#ffb23e" stroke-width="3"/>`,
   arrivee: `<rect x="12" y="4" width="16" height="32" rx="2" fill="${ROAD}"/><path d="M12 8h16v8H12z" fill="#fff"/><path d="M12 8h4v4h-4zM20 8h4v4h-4zM16 12h4v4h-4zM24 12h4v4h-4z" fill="#14101f"/>`,
 };

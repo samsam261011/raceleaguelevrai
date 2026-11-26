@@ -78,7 +78,6 @@ function blotches(g: CanvasRenderingContext2D, s: number, n: number, rgb: string
 interface TrackTextures {
   asphalt: THREE.CanvasTexture;
   plate: THREE.CanvasTexture;
-  boost: THREE.CanvasTexture;
   checker: THREE.CanvasTexture;
 }
 let texCache: TrackTextures | null = null;
@@ -126,30 +125,6 @@ function textures(): TrackTextures {
     }
     g.stroke();
   });
-  const boost = canvasTexture(512, (g, s) => {
-    g.fillStyle = "#0f2a3a";
-    g.fillRect(0, 0, s, s);
-    // Bandes latérales sombres, panneau de verre au centre
-    g.fillStyle = "#123a4f";
-    g.fillRect(s * 0.06, 0, s * 0.88, s);
-    // Chevrons pointés vers l'avant (haut de l'image = +v = sens de la course)
-    for (let k = 0; k < 4; k++) {
-      const y0 = (k * s) / 4 + s * 0.04;
-      const grd = g.createLinearGradient(0, y0, 0, y0 + s * 0.16);
-      grd.addColorStop(0, "#c8f8ff");
-      grd.addColorStop(1, "#35e0ff");
-      g.fillStyle = grd;
-      g.beginPath();
-      g.moveTo(s * 0.18, y0 + s * 0.15);
-      g.lineTo(s * 0.5, y0);
-      g.lineTo(s * 0.82, y0 + s * 0.15);
-      g.lineTo(s * 0.82, y0 + s * 0.21);
-      g.lineTo(s * 0.5, y0 + s * 0.06);
-      g.lineTo(s * 0.18, y0 + s * 0.21);
-      g.closePath();
-      g.fill();
-    }
-  });
   const checker = canvasTexture(128, (g, s) => {
     const n = 8;
     for (let x = 0; x < n; x++)
@@ -159,17 +134,12 @@ function textures(): TrackTextures {
       }
   });
   checker.magFilter = THREE.NearestFilter;
-  texCache = { asphalt, plate, boost, checker };
+  texCache = { asphalt, plate, checker };
   return texCache;
 }
 
-/** Fait défiler les chevrons des boosters (appelé à chaque image par la vue de course). */
-export function animateTrack(dt: number): void {
-  if (texCache) texCache.boost.offset.y = (texCache.boost.offset.y - dt * 1.6) % 1;
-}
-
 // ---------- Matériaux (partagés par toutes les pièces) ----------
-type MatKey = "asphalt" | "plate" | "boost" | "concrete" | "paint" | "glow" | "checker";
+type MatKey = "asphalt" | "plate" | "concrete" | "paint" | "glow" | "checker";
 let mats: Record<MatKey, THREE.Material> | null = null;
 function materials(): Record<MatKey, THREE.Material> {
   if (mats) return mats;
@@ -178,7 +148,6 @@ function materials(): Record<MatKey, THREE.Material> {
   mats = {
     asphalt: lambert({ map: t.asphalt }),
     plate: lambert({ map: t.plate }),
-    boost: lambert({ map: t.boost, emissive: 0x1a6f8a, emissiveMap: t.boost, emissiveIntensity: 0.9 }),
     concrete: lambert({ vertexColors: true }),
     // Peinture au sol : décalée pour ne jamais scintiller avec la chaussée
     paint: lambert({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
@@ -242,13 +211,12 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
   const m: Record<MatKey, Mesher> = {
     asphalt: new Mesher(),
     plate: new Mesher(),
-    boost: new Mesher(),
     concrete: new Mesher(),
     paint: new Mesher(),
     glow: new Mesher(),
     checker: new Mesher(),
   };
-  const surface = def.look === "road" ? m.asphalt : def.look === "plate" ? m.plate : m.boost;
+  const surface = def.look === "road" ? m.asphalt : m.plate;
   const length = along[n - 1]!;
 
   // Chaussée (les plaques gardent une texture alignée sur la case)
@@ -349,13 +317,6 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
         const q1 = p1.clone().add(new THREE.Vector3(-tx * d, 0, -tz * d));
         m.paint.quad(p0, p1, q1, q0, c);
       }
-    }
-  }
-
-  // Booster : liserés cyan lumineux de chaque côté
-  if (def.boost) {
-    for (const s of [1, -1]) {
-      for (let i = 0; i < n - 1; i++) m.glow.quad(at(i, s * 8.6, 0.02), at(i + 1, s * 8.6, 0.02), at(i + 1, s * 8.95, 0.02), at(i, s * 8.95, 0.02), C.cyan);
     }
   }
 
@@ -481,7 +442,7 @@ function meshesFrom(parts: Partial<Record<MatKey, THREE.BufferGeometry>>): THREE
   const mt = materials();
   return (Object.keys(parts) as MatKey[]).map((k) => {
     const mesh = new THREE.Mesh(parts[k]!, mt[k]);
-    mesh.castShadow = k === "concrete" || k === "asphalt" || k === "plate" || k === "boost";
+    mesh.castShadow = k === "concrete" || k === "asphalt" || k === "plate";
     mesh.receiveShadow = k !== "glow";
     return mesh;
   });

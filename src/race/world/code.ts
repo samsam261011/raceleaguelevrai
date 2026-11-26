@@ -15,7 +15,12 @@ export interface EditorMap {
  *   version (1 octet), longueur du nom (1), nom en UTF-8, temps auteur en ms (4, 0 = aucun),
  *   nombre de pièces (2), puis 4 octets par pièce : type, x, z, hauteur × 4 + rotation.
  */
-const KINDS = Object.keys(PIECES) as PieceKind[];
+/**
+ * Numéros des pièces dans les codes : liste figée pour que les anciens codes restent lisibles.
+ * Les boosters ont été retirés du jeu : un ancien code qui en contient les relit comme des plaques.
+ */
+const CODE_KINDS = ["depart", "route", "virage", "virage2", "virage3", "pente", "penteRaide", "tremplin", "plaque", "plaquePente", "booster", "checkpoint", "arrivee"] as const;
+const RENAMED: Partial<Record<(typeof CODE_KINDS)[number], PieceKind>> = { booster: "plaque" };
 const PREFIX = "RL2-";
 
 export function encodeMap(map: EditorMap): string {
@@ -32,7 +37,7 @@ export function encodeMap(map: EditorMap): string {
   view.setUint16(o, map.blocks.length);
   o += 2;
   for (const b of map.blocks) {
-    bytes[o++] = KINDS.indexOf(b.kind);
+    bytes[o++] = CODE_KINDS.indexOf(b.kind);
     view.setInt8(o++, b.x);
     view.setInt8(o++, b.z);
     bytes[o++] = (Math.min(MAX_LEVEL, b.level) << 2) | (b.rot & 3);
@@ -73,11 +78,12 @@ export function decodeMap(code: string): EditorMap {
   need(count * 4);
   const blocks: Block[] = [];
   for (let i = 0; i < count; i++) {
-    const kind = KINDS[bytes[o++]!];
+    const raw = CODE_KINDS[bytes[o++]!];
+    const kind = raw ? (RENAMED[raw] ?? (raw as PieceKind)) : undefined;
     const x = view.getInt8(o++);
     const z = view.getInt8(o++);
     const lr = bytes[o++]!;
-    if (!kind) throw new Error("Pièce inconnue dans le code");
+    if (!kind || !PIECES[kind]) throw new Error("Pièce inconnue dans le code");
     blocks.push({ kind, x, z, level: lr >> 2, rot: lr & 3 });
   }
   return { name, authorTime: ms ? ms / 1000 : null, blocks };

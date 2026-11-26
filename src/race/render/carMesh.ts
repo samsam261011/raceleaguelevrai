@@ -5,7 +5,7 @@ import { col, loft, Mesher, mirrored } from "./geom";
  * Voiture de la ligue : un prototype bas et large, roues avant découvertes (on les voit braquer),
  * monocoque profilée, pontons latéraux, aileron arrière sur deux mâts.
  * Dimensions réelles en mètres (environ 4,9 m de long, 2,6 m de large aux roues), sans mise à l'échelle.
- * Peu d'appels de dessin : carrosserie, vitrage, feux, 4 roues et les flammes de boost.
+ * Peu d'appels de dessin : carrosserie, vitrage, feux, 4 roues.
  */
 export interface CarMesh {
   root: THREE.Group;
@@ -16,8 +16,6 @@ export interface CarMesh {
   steerPivots: THREE.Group[];
   /** Feux arrière (plus vifs au freinage). */
   lights: THREE.MeshBasicMaterial | null;
-  /** Flammes des échappements (visibles en boost). */
-  flames: THREE.Object3D | null;
   /** Matériaux transparents du fantôme (pour le faire apparaître ou s'effacer). */
   fade: { mat: THREE.Material & { opacity: number }; base: number }[];
 }
@@ -217,7 +215,7 @@ interface Mats {
   lights: THREE.Material;
 }
 
-function assemble(sh: Shapes, mats: Mats, shadows: boolean): Omit<CarMesh, "fade" | "lights" | "flames"> {
+function assemble(sh: Shapes, mats: Mats, shadows: boolean): Omit<CarMesh, "fade" | "lights"> {
   const root = new THREE.Group();
   root.rotation.order = "YXZ";
   const body = new THREE.Group();
@@ -254,23 +252,6 @@ function assemble(sh: Shapes, mats: Mats, shadows: boolean): Omit<CarMesh, "fade
   return { root, body, wheels, steerPivots };
 }
 
-function flameMesh(): THREE.Object3D {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshBasicMaterial({ color: 0x7ff0ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-  const core = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-  for (const s of [1, -1]) {
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.9, 8, 1, true), mat);
-    cone.rotation.x = -Math.PI / 2;
-    cone.position.set(s * 0.17, 0.47, -2.7);
-    const inner = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.5, 6, 1, true), core);
-    inner.rotation.x = -Math.PI / 2;
-    inner.position.set(s * 0.17, 0.47, -2.5);
-    g.add(cone, inner);
-  }
-  g.visible = false;
-  return g;
-}
-
 const shapeCache = new Map<number, Shapes>();
 function shapesFor(color: number): Shapes {
   let s = shapeCache.get(color);
@@ -292,9 +273,7 @@ export function buildCarMesh(color: number = RANK_COLORS.or!): CarMesh {
     },
     true,
   );
-  const flames = flameMesh();
-  parts.body.add(flames);
-  return { ...parts, lights, flames, fade: [] };
+  return { ...parts, lights, fade: [] };
 }
 
 /** Fantôme : la même voiture, bleutée et translucente, sans ombre. */
@@ -306,5 +285,5 @@ export function buildGhostMesh(): CarMesh {
   const parts = assemble(sh, mats, false);
   const fade: CarMesh["fade"] = [];
   for (const m of new Set(Object.values(mats))) fade.push({ mat: m, base: m.opacity });
-  return { ...parts, lights: null, flames: null, fade };
+  return { ...parts, lights: null, fade };
 }

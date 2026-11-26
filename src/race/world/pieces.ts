@@ -59,7 +59,6 @@ export type PieceKind =
   | "tremplin"
   | "plaque"
   | "plaquePente"
-  | "booster"
   | "checkpoint"
   | "arrivee";
 
@@ -80,9 +79,8 @@ export interface PieceDef {
   /** Plaque : surface sans rebords, qui se traverse dans tous les sens. */
   plate?: boolean;
   gate?: "start" | "finish" | "checkpoint";
-  boost?: boolean;
-  /** Couleur de surface : route, plaque, booster. */
-  look: "road" | "plate" | "boost";
+  /** Couleur de surface : route ou plaque. */
+  look: "road" | "plate";
 }
 
 function straight(y1 = 0): PathPoint[] {
@@ -172,7 +170,6 @@ export const PIECES: Record<PieceKind, PieceDef> = {
   tremplin: { kind: "tremplin", label: "Tremplin", cells: one, ports: SN(0), path: kicker(), borders: BOTH, look: "road" },
   plaque: { kind: "plaque", label: "Plaque", cells: one, ports: ALL4, path: straight(), borders: NONE, plate: true, look: "plate" },
   plaquePente: { kind: "plaquePente", label: "Plaque en pente", cells: one, ports: SN(2), path: straight(2 * STEP), borders: NONE, look: "plate" },
-  booster: { kind: "booster", label: "Booster", cells: one, ports: ALL4, path: straight(), borders: NONE, plate: true, boost: true, look: "boost" },
   checkpoint: { kind: "checkpoint", label: "Checkpoint", cells: one, ports: SN(), path: straight(), borders: BOTH, gate: "checkpoint", look: "road" },
   arrivee: { kind: "arrivee", label: "Arrivée", cells: one, ports: [{ cell: [0, 0], side: S, h: 0 }], path: straight(), borders: BOTH, gate: "finish", look: "road" },
 };
@@ -189,7 +186,6 @@ export const PALETTE: PieceKind[] = [
   "tremplin",
   "plaque",
   "plaquePente",
-  "booster",
   "checkpoint",
   "arrivee",
 ];

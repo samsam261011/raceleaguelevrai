@@ -1,6 +1,6 @@
 /**
  * Traits de vitesse dessinés par-dessus la scène, depuis les bords de l'écran.
- * Purement visuel : ils apparaissent à haute vitesse et s'intensifient sur un booster.
+ * Purement visuel : ils apparaissent à haute vitesse.
  */
 export class SpeedLines {
   private readonly g: CanvasRenderingContext2D;
@@ -28,8 +28,8 @@ export class SpeedLines {
   }
 
   /** k : vitesse / vitesse max (0 à 1,3). */
-  draw(k: number, boost: boolean, dt: number): void {
-    const target = Math.max(0, (k - 0.55) / 0.45) * 0.55 + (boost ? 0.45 : 0);
+  draw(k: number, dt: number): void {
+    const target = Math.max(0, (k - 0.55) / 0.45) * 0.55;
     this.level += (target - this.level) * (1 - Math.exp(-dt * 6));
     const g = this.g;
     g.clearRect(0, 0, this.w, this.h);
@@ -45,7 +45,7 @@ export class SpeedLines {
       const r1 = (l.r + l.len) * R;
       const ca = Math.cos(l.a);
       const sa = Math.sin(l.a);
-      g.strokeStyle = boost ? `rgba(150,240,255,${0.55 * this.level})` : `rgba(255,255,255,${0.45 * this.level})`;
+      g.strokeStyle = `rgba(255,255,255,${0.45 * this.level})`;
       g.lineWidth = 1.5 + l.len * 14;
       g.beginPath();
       g.moveTo(cx + ca * r0, cy + sa * r0 * 0.75);
