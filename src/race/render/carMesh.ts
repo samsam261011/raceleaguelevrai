@@ -3,9 +3,9 @@ import { WHEELS } from "../physics/constants";
 import { col, loft, Mesher, mirrored } from "./geom";
 
 /**
- * Voiture de la ligue : un prototype haut sur pattes, grosses roues découvertes (on les voit braquer),
- * monocoque profilée, pontons latéraux, aileron arrière sur deux mâts.
- * Dimensions réelles en mètres (environ 4,9 m de long, 2,4 m de large aux roues).
+ * Voiture de la ligue : un bloc compact et anguleux, nez en coin, épaules larges sur de grosses roues,
+ * bulle de cockpit sombre et aileron intégré à la poupe. Rien de fin ni de fragile.
+ * Dimensions réelles en mètres (environ 4,6 m de long, 2,4 m de large aux roues).
  * Peu d'appels de dessin : carrosserie, vitrage, feux, 4 roues.
  */
 export interface CarMesh {
@@ -38,10 +38,6 @@ const STRIPE = col(0xf6f3ee);
 
 const FRONT_Z = WHEELS[0].z;
 const REAR_Z = WHEELS[2].z;
-/** La caisse est dessinée large et basse, puis affinée (largeur), rehaussée (hauteur) et surélevée. */
-const BODY_WIDTH = 0.82;
-const BODY_HEIGHT = 1.25;
-const BODY_LIFT = 0.16;
 
 interface Shapes {
   body: THREE.BufferGeometry;
@@ -77,14 +73,6 @@ function box(m: Mesher, w: number, h: number, d: number, x: number, y: number, z
   const geo = new THREE.BoxGeometry(w, h, d);
   const mat = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, 0)), new THREE.Vector3(1, 1, 1));
   m.addGeometry(geo, mat, color);
-}
-
-/** Bras de suspension : fin tube entre deux points. */
-function rod(m: Mesher, a: THREE.Vector3, b: THREE.Vector3, r: number, color: THREE.Color) {
-  const d = b.clone().sub(a);
-  const geo = new THREE.CylinderGeometry(r, r, d.length(), 5);
-  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize());
-  m.addGeometry(geo, new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)), color);
 }
 
 function wheel(r: number, w: number, accent: THREE.Color): THREE.BufferGeometry {
@@ -123,92 +111,55 @@ function wheel(r: number, w: number, accent: THREE.Color): THREE.BufferGeometry 
 
 function shapes(primary: THREE.Color): Shapes {
   const body = new Mesher();
-  // Monocoque : museau bas et pointu, cockpit reculé, capot moteur bossu
+  // Un seul bloc : coin bas à l'avant, épaules larges posées sur les roues, poupe haute et carrée.
+  // Les roues sont rentrées sous la carrosserie : seuls le bas et le flanc des pneus dépassent.
   loft(
     body,
     [
-      section(2.78, 0.13, 0.19, 0.29, 0.35),
-      section(2.25, 0.25, 0.16, 0.33, 0.45),
-      section(1.5, 0.35, 0.14, 0.37, 0.55),
-      section(0.75, 0.43, 0.13, 0.41, 0.66),
-      section(0.0, 0.47, 0.12, 0.43, 0.7),
-      section(-0.7, 0.45, 0.12, 0.45, 0.9),
-      section(-1.5, 0.39, 0.14, 0.43, 0.7),
-      section(-2.1, 0.27, 0.19, 0.38, 0.5),
+      section(2.36, 0.8, 0.26, 0.42, 0.48),
+      section(2.0, 1.02, 0.22, 0.66, 0.72),
+      section(1.2, 1.08, 0.2, 0.9, 0.96),
+      section(0.5, 1.04, 0.2, 0.92, 1.0),
+      section(-0.5, 1.04, 0.2, 0.94, 1.04),
+      section(-1.3, 1.1, 0.2, 1.0, 1.08),
+      section(-2.0, 1.04, 0.24, 0.98, 1.04),
+      section(-2.24, 0.86, 0.3, 0.86, 0.92),
     ],
     livery(primary, true),
   );
-  // Pontons latéraux, prise d'air sombre à l'avant
+  // Bas de caisse sombre : lame avant, prises d'air latérales entre les roues, diffuseur
+  box(body, 1.8, 0.06, 0.42, 0, 0.2, 2.2, CARBON, -0.06);
   for (const s of [1, -1]) {
-    loft(
-      body,
-      [section(0.62, 0.2, 0.17, 0.38, 0.47), section(0.25, 0.3, 0.14, 0.42, 0.54), section(-0.85, 0.28, 0.14, 0.41, 0.5), section(-1.55, 0.13, 0.2, 0.32, 0.37)],
-      (i, k) => (i < 0 ? CARBON : livery(primary, false)(i, k)),
-      new THREE.Vector3(s * 0.66, 0, 0),
-    );
-    // Rétroviseurs
-    box(body, 0.16, 0.08, 0.06, s * 0.6, 0.66, 0.55, CARBON);
-    rod(body, new THREE.Vector3(s * 0.45, 0.6, 0.55), new THREE.Vector3(s * 0.56, 0.66, 0.55), 0.015, CARBON);
+    box(body, 0.06, 0.26, 1.1, s * 1.05, 0.46, 0.0, CARBON);
+    box(body, 0.05, 0.05, 1.7, s * 1.07, 0.72, 0.0, STRIPE);
   }
-  // Pilote : casque blanc à visière sombre
-  {
-    const helmet = new THREE.IcosahedronGeometry(0.2, 1);
-    body.addGeometry(helmet, new THREE.Matrix4().makeTranslation(0, 0.82, -0.1), STRIPE);
-  }
-  // Aileron avant : lame fine et dérives orange
-  box(body, 2.2, 0.05, 0.5, 0, 0.15, 2.5, CARBON_LIGHT, -0.08);
-  box(body, 2.0, 0.04, 0.24, 0, 0.24, 2.36, primary, -0.25);
-  for (const s of [1, -1]) box(body, 0.04, 0.26, 0.62, s * 1.1, 0.22, 2.48, primary);
-  // Aileron arrière sur deux mâts
-  box(body, 1.95, 0.07, 0.52, 0, 1.0, -2.02, primary, 0.14);
-  box(body, 1.95, 0.05, 0.26, 0, 1.13, -2.3, STRIPE, 0.42);
-  for (const s of [1, -1]) {
-    box(body, 0.05, 0.55, 0.78, s * 0.98, 0.98, -2.12, primary);
-    box(body, 0.06, 0.5, 0.22, s * 0.22, 0.72, -1.95, CARBON, 0.12);
-  }
-  // Diffuseur et échappements
-  box(body, 1.0, 0.1, 0.34, 0, 0.2, -2.02, CARBON);
-  for (const s of [1, -1]) {
-    const pipe = new THREE.CylinderGeometry(0.07, 0.08, 0.32, 8);
-    body.addGeometry(pipe, new THREE.Matrix4().compose(new THREE.Vector3(s * 0.17, 0.47, -2.12), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)), new THREE.Vector3(1, 1, 1)), CARBON_LIGHT);
-  }
-  // Suspensions : triangles fins entre la coque et les moyeux
-  for (const s of [1, -1]) {
-    for (const [z, hx, r] of [
-      [FRONT_Z, WHEELS[0].x / BODY_WIDTH, WHEELS[0].r],
-      [REAR_Z, WHEELS[2].x / BODY_WIDTH, WHEELS[2].r],
-    ] as const) {
-      const hub = new THREE.Vector3(s * (hx - 0.12), (r - BODY_LIFT) / BODY_HEIGHT + 0.04, z);
-      rod(body, new THREE.Vector3(s * 0.36, 0.5, z + 0.25), hub, 0.025, CARBON);
-      rod(body, new THREE.Vector3(s * 0.36, 0.5, z - 0.25), hub, 0.025, CARBON);
-      rod(body, new THREE.Vector3(s * 0.36, 0.22, z + 0.2), hub.clone().setY(0.34), 0.025, CARBON);
-      rod(body, new THREE.Vector3(s * 0.36, 0.22, z - 0.2), hub.clone().setY(0.34), 0.025, CARBON);
-    }
-  }
+  box(body, 1.6, 0.18, 0.12, 0, 0.38, -2.25, CARBON);
+  // Aileron court posé sur la poupe, sur deux dérives pleines
+  box(body, 2.0, 0.08, 0.4, 0, 1.28, -1.98, primary, 0.1);
+  box(body, 2.0, 0.05, 0.16, 0, 1.32, -2.17, STRIPE, 0.35);
+  for (const s of [1, -1]) box(body, 0.1, 0.3, 0.6, s * 0.95, 1.14, -1.98, CARBON_LIGHT);
 
-  // Pare-brise teinté autour du cockpit
+  // Bulle du cockpit, basse et fuyante, en verre sombre
   const glass = new Mesher();
   const gs = (z: number, w: number, y0: number, y1: number) => ({
     z,
     pts: mirrored([
       [w, y0],
-      [w * 0.92, y1 - 0.06],
+      [w * 0.9, y1 - 0.05],
       [w * 0.55, y1],
       [w * 0.2, y1 + 0.01],
     ]),
   });
-  loft(glass, [gs(0.95, 0.12, 0.6, 0.66), gs(0.62, 0.34, 0.63, 0.78), gs(0.4, 0.38, 0.65, 0.8)], col(0x1c1430));
+  loft(glass, [gs(1.0, 0.34, 0.97, 0.99), gs(0.5, 0.62, 0.99, 1.24), gs(-0.3, 0.64, 1.02, 1.28), gs(-0.9, 0.44, 1.04, 1.1)], col(0x1c1430));
 
-  // Barre de feux arrière, pleine largeur
+  // Feux arrière : un bandeau sur toute la largeur
   const lights = new Mesher();
-  box(lights, 1.0, 0.07, 0.03, 0, 0.37, -2.12, col(0xffffff));
-  box(lights, 0.12, 0.12, 0.03, 0, 0.82, -2.33, col(0xffffff));
+  box(lights, 1.6, 0.09, 0.03, 0, 0.66, -2.26, col(0xffffff));
 
-  const fit = new THREE.Matrix4().makeTranslation(0, BODY_LIFT, 0).multiply(new THREE.Matrix4().makeScale(BODY_WIDTH, BODY_HEIGHT, 1));
   return {
-    body: body.geometry().applyMatrix4(fit),
-    glass: glass.geometry().applyMatrix4(fit),
-    lights: lights.geometry().applyMatrix4(fit),
+    body: body.geometry(),
+    glass: glass.geometry(),
+    lights: lights.geometry(),
     frontWheel: wheel(WHEELS[0].r, WHEELS[0].w, col(0xffb23e)),
     rearWheel: wheel(WHEELS[2].r, WHEELS[2].w, col(0xffb23e)),
   };

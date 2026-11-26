@@ -16,8 +16,8 @@ function esplanade() {
   return buildWorld({ id: "e", name: "e", medals: GRAND_SAUT.medals, blocks });
 }
 
-/** Inclinaison sur le côté (roulis), en radians environ : composante latérale du haut de la voiture. */
-const roll = (c: { qx: number; qy: number; qz: number; qw: number }) => Math.abs(2 * (c.qx * c.qy - c.qw * c.qz));
+/** Inclinaison sur le côté (roulis), en radians environ : hauteur prise par l'axe gauche-droite de la voiture, quel que soit son cap. */
+const roll = (c: { qx: number; qy: number; qz: number; qw: number }) => Math.abs(2 * (c.qx * c.qy + c.qw * c.qz));
 
 describe("moteur de conduite v3", () => {
   it("au repos, la voiture se pose sur ses quatre roues", () => {
@@ -118,7 +118,7 @@ describe("moteur de conduite v3", () => {
     a.dispose();
   });
 
-  it("le grand saut dure longtemps, et freiner en l'air garde la voiture à plat et dans l'axe sans la ralentir", () => {
+  it("le grand saut dure longtemps, sans plongeon du nez, et freiner en l'air garde la voiture à plat et dans l'axe sans la ralentir", () => {
     const pilot = makeAutopilot(findRoute(GRAND_SAUT.blocks)!);
     const a = new Attempt(buildWorld(GRAND_SAUT));
     let air = 0;
@@ -126,12 +126,19 @@ describe("moteur de conduite v3", () => {
     let worst = 0;
     let lost = 0;
     let takeoff = 0;
+    let peakNose = -1;
+    let dive = 0;
     while (a.status === "running" && a.tick < 120 * 60) {
       const flying = !a.car.grounded;
       if (flying && air === 0) takeoff = Math.hypot(a.car.vx, a.car.vz);
       a.step(flying ? IN_BRAKE : pilot(a.car));
       if (!a.car.grounded) {
         air++;
+        // Le nez ne plonge jamais : il ne descend pas sous la plus haute position prise depuis le décollage
+        const c = a.car;
+        const nose = 2 * (c.qy * c.qz - c.qw * c.qx);
+        peakNose = Math.max(peakNose, nose);
+        dive = Math.max(dive, peakNose - nose);
         // Écart entre le nez de la voiture et sa trajectoire, et inclinaison
         const off = Math.abs(Math.atan2(Math.sin(a.car.heading - Math.atan2(a.car.vx, a.car.vz)), Math.cos(a.car.heading - Math.atan2(a.car.vx, a.car.vz))));
         // Le nez se relève en quittant le tremplin : on regarde après 0,4 s de vol
@@ -140,12 +147,14 @@ describe("moteur de conduite v3", () => {
       } else {
         longest = Math.max(longest, air);
         air = 0;
+        peakNose = -1;
       }
     }
     expect(a.status).toBe("finished");
     expect(longest / 120).toBeGreaterThan(1.8);
     expect(worst).toBeLessThan(0.08);
     expect(lost).toBeLessThan(1);
+    expect(dive).toBeLessThan(0.03);
     a.dispose();
   });
 });

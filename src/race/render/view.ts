@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { WHEELS, type CarState } from "../physics/car";
 import { formatTime } from "../session/session";
-import { SUSPENSION_REST, SUSPENSION_SAG, VMAX } from "../physics/constants";
+import { VMAX } from "../physics/constants";
 import type { World } from "../world/world";
 import { buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
@@ -106,7 +106,7 @@ export class RaceView {
     placeCar(this.car, prev, cur, alpha);
     const speed = Math.hypot(cur.vx, cur.vz);
     // Rotation des roues : vitesse / rayon
-    this.wheelSpin += (cur.speed / 0.42) * dt;
+    this.wheelSpin += (cur.speed / WHEELS[2].r) * dt;
     const prevSpeed = prev.speed;
     const accel = (cur.speed - prevSpeed) * 120;
     if (this.car.lights) this.car.lights.color.setRGB(accel < -20 ? 2.4 : 0.9, accel < -20 ? 0.25 : 0.08, accel < -20 ? 0.2 : 0.06);
@@ -115,7 +115,7 @@ export class RaceView {
     if (ghost) {
       this.ghost.root.visible = true;
       placeCar(this.ghost, ghost.prev, ghost.cur, alpha);
-      this.ghostSpin += (ghost.cur.speed / 0.42) * dt;
+      this.ghostSpin += (ghost.cur.speed / WHEELS[2].r) * dt;
       for (const w of this.ghost.wheels) w.rotation.x = this.ghostSpin;
       if (this.ghostLabelTime !== ghost.time) this.setGhostLabel(ghost.time);
       // Le fantôme s'efface quand il est sur la voiture, pour ne pas gêner la vue
@@ -143,7 +143,12 @@ export class RaceView {
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
     this.camYaw += dy * (1 - Math.exp(-dt * 7));
-    this.camY += (p.y - this.camY) * (1 - Math.exp(-dt * (cur.grounded ? 9 : 4)));
+    // Hauteur : la caméra suit la voiture de près, et ne descend jamais sous elle (on ne voit jamais le dessous).
+    // En descente, elle garde un léger retard vers le haut, ce qui montre le dessus de la voiture.
+    const rising = p.y > this.camY;
+    this.camY += (p.y - this.camY) * (1 - Math.exp(-dt * (rising ? 14 : cur.grounded ? 10 : 6)));
+    if (this.camY < p.y - 0.15) this.camY = p.y - 0.15;
+    if (this.camY > p.y + 1.5) this.camY = p.y + 1.5;
     const k = Math.min(1.3, Math.max(0, cur.speed) / VMAX);
     const fx = Math.sin(this.camYaw);
     const fz = Math.cos(this.camYaw);
@@ -201,21 +206,13 @@ export class RaceView {
 
 const qa = new THREE.Quaternion();
 const qb = new THREE.Quaternion();
-/** Correspondance entre les roues du modèle 3D (gauche avant, droite avant, gauche arrière, droite arrière) et celles de la physique. */
-const MESH_TO_SIM = [1, 0, 3, 2] as const;
 
 function placeCar(mesh: CarMesh, a: CarState, b: CarState, t: number): void {
   mesh.root.position.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
   qa.set(a.qx, a.qy, a.qz, a.qw);
   qb.set(b.qx, b.qy, b.qz, b.qw);
   mesh.root.quaternion.slerpQuaternions(qa, qb, t);
-  // Roues : elles suivent la suspension
-  mesh.wheels.forEach((w, i) => {
-    const k = MESH_TO_SIM[i]!;
-    const spec = WHEELS[k];
-    const drop = a.wheels[k]!.drop + (b.wheels[k]!.drop - a.wheels[k]!.drop) * t;
-    if (w.parent) w.parent.position.y = spec.r + SUSPENSION_REST - SUSPENSION_SAG - drop;
-  });
+  // Les roues restent fixées à la caisse : une voiture compacte, sans débattement visible
   // Roues avant braquées (bien visibles, même à haute vitesse où l'angle réel est faible)
   const steer = a.steer + (b.steer - a.steer) * t;
   for (const p of mesh.steerPivots) p.rotation.y = -steer * 0.45;

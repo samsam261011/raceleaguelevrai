@@ -46,6 +46,9 @@ export const AIR_STEER_RESPONSE = 3;
 /** Frein en l'air : la voiture cesse de tourner, se met à plat et s'aligne sur sa trajectoire, sans perdre de vitesse (par seconde). */
 export const AIR_BRAKE_RESPONSE = 4;
 export const AIR_LEVEL = 3;
+/** En l'air, vitesse à laquelle le tangage est annulé (pas de plongeon) et le roulis corrigé (par seconde). */
+export const AIR_PITCH_RESPONSE = 40;
+export const AIR_ROLL_RESPONSE = 6;
 export const ANGULAR_DAMPING = 0.6;
 /** Anti-roulis au sol : vitesse de redressement par unité d'inclinaison (rad/s), et réactivité (par seconde). */
 export const ANTI_ROLL = 12;
@@ -90,8 +93,8 @@ export const WALL_SPEED_KEEP = 0.994;
 
 /** Roues dans le repère de la voiture (+x à gauche, +z vers l'avant) : avant gauche, avant droite, arrière gauche, arrière droite. Rayon et largeur (m). */
 export const WHEELS = [
-  { x: 1.0, z: 1.55, r: 0.5, w: 0.4, front: true },
-  { x: -1.0, z: 1.55, r: 0.5, w: 0.4, front: true },
-  { x: 0.98, z: -1.45, r: 0.56, w: 0.5, front: false },
-  { x: -0.98, z: -1.45, r: 0.56, w: 0.5, front: false },
+  { x: 1.0, z: 1.55, r: 0.47, w: 0.42, front: true },
+  { x: -1.0, z: 1.55, r: 0.47, w: 0.42, front: true },
+  { x: 0.98, z: -1.45, r: 0.51, w: 0.5, front: false },
+  { x: -0.98, z: -1.45, r: 0.51, w: 0.5, front: false },
 ] as const;

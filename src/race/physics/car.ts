@@ -276,37 +276,36 @@ export class CarSim {
       // En l'air : gravité allégée pour des sauts longs
       const lift = C.MASS * (C.GRAVITY - C.AIR_GRAVITY) * dt;
       b.applyImpulse({ x: 0, y: lift, z: 0 }, true);
+      // Rotation en l'air, axe par axe (flanc, avant, haut de la voiture) :
+      // - tangage : jamais de plongeon. On annule toute rotation du nez ; s'il pointe vers le bas, il remonte doucement.
+      // - roulis : la voiture se remet à plat.
+      // - lacet : au volant, ou avec le frein, alignement sur la trajectoire.
       const w = b.angvel();
-      if (has(input, IN_BRAKE)) {
-        // Frein en l'air : plus de rotation parasite, la voiture se met à plat et s'aligne sur sa trajectoire
-        // pour repartir proprement à la réception. La vitesse n'est pas touchée.
-        const k = clamp(C.AIR_BRAKE_RESPONSE * dt, 0, 1);
-        // Inclinaison : haut de la voiture × vertical
-        let tx = -uz;
-        let ty = 0;
-        let tz = ux;
-        // Cap : avant de la voiture × direction horizontale du mouvement
+      const sx = 1 - 2 * (q.y * q.y + q.z * q.z);
+      const sy = 2 * (q.x * q.y + q.w * q.z);
+      const sz = 2 * (q.x * q.z - q.w * q.y);
+      const ws = w.x * sx + w.y * sy + w.z * sz;
+      const wf = w.x * fx + w.y * fy + w.z * fz;
+      const wu = w.x * ux + w.y * uy + w.z * uz;
+      const braking = has(input, IN_BRAKE);
+      const pitchWant = fy < 0 ? fy * C.AIR_LEVEL : 0;
+      const rollWant = -sy * C.AIR_LEVEL * (braking ? 2 : 1);
+      let yawWant = -this.steer * C.AIR_STEER;
+      let yawK = clamp(C.AIR_STEER_RESPONSE * dt, 0, 1);
+      if (braking) {
+        // Frein en l'air : la voiture s'aligne sur sa trajectoire pour repartir proprement, sans perdre de vitesse
+        yawWant = 0;
         const hl = Math.sqrt(lv.x * lv.x + lv.z * lv.z);
         if (hl > 2 && vf > 0) {
-          const dx = lv.x / hl;
-          const dz = lv.z / hl;
           const fl = Math.sqrt(fx * fx + fz * fz) || 1;
-          ty += ((fz / fl) * dx - (fx / fl) * dz);
+          yawWant = ((fz / fl) * (lv.x / hl) - (fx / fl) * (lv.z / hl)) * C.AIR_LEVEL * 2;
         }
-        tx *= C.AIR_LEVEL * 2;
-        ty *= C.AIR_LEVEL * 2;
-        tz *= C.AIR_LEVEL * 2;
-        b.setAngvel({ x: w.x + (tx - w.x) * k, y: w.y + (ty - w.y) * k, z: w.z + (tz - w.z) * k }, true);
-      } else {
-        // On peut orienter la voiture au volant, et elle se remet doucement à plat
-        const yaw = -this.steer * C.AIR_STEER;
-        const lx = -uz;
-        const lz = ux;
-        const k = C.AIR_LEVEL * dt;
-        const cur = w.x * ux + w.y * uy + w.z * uz;
-        const dy = (yaw - cur) * clamp(C.AIR_STEER_RESPONSE * dt, 0, 1);
-        b.setAngvel({ x: w.x + ux * dy + lx * k, y: w.y + uy * dy, z: w.z + uz * dy + lz * k }, true);
+        yawK = clamp(C.AIR_BRAKE_RESPONSE * dt, 0, 1);
       }
+      const dp = (pitchWant - ws) * clamp(C.AIR_PITCH_RESPONSE * dt, 0, 1);
+      const dr = (rollWant - wf) * clamp(C.AIR_ROLL_RESPONSE * dt, 0, 1);
+      const dw = (yawWant - wu) * yawK;
+      b.setAngvel({ x: w.x + sx * dp + fx * dr + ux * dw, y: w.y + sy * dp + fy * dr + uy * dw, z: w.z + sz * dp + fz * dr + uz * dw }, true);
     }
 
     v.updateVehicle(dt, undefined, undefined, this.wheelFilter);
