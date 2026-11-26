@@ -19,7 +19,25 @@ export interface EditorMap {
  * Numéros des pièces dans les codes : liste figée pour que les anciens codes restent lisibles.
  * Les boosters ont été retirés du jeu : un ancien code qui en contient les relit comme des plaques.
  */
-const CODE_KINDS = ["depart", "route", "virage", "virage2", "virage3", "pente", "penteRaide", "tremplin", "plaque", "plaquePente", "booster", "checkpoint", "arrivee"] as const;
+const CODE_KINDS = [
+  "depart",
+  "route",
+  "virage",
+  "virage2",
+  "virage3",
+  "pente",
+  "penteRaide",
+  "tremplin",
+  "plaque",
+  "plaquePente",
+  "booster",
+  "checkpoint",
+  "arrivee",
+  // Ajoutées ensuite : toujours à la fin, pour que les anciens codes gardent leurs numéros
+  "virageReleve",
+  "mur",
+  "looping",
+] as const;
 const RENAMED: Partial<Record<(typeof CODE_KINDS)[number], PieceKind>> = { booster: "plaque" };
 const PREFIX = "RL2-";
 
@@ -37,7 +55,7 @@ export function encodeMap(map: EditorMap): string {
   view.setUint16(o, map.blocks.length);
   o += 2;
   for (const b of map.blocks) {
-    bytes[o++] = CODE_KINDS.indexOf(b.kind);
+    bytes[o++] = CODE_KINDS.indexOf(b.kind as (typeof CODE_KINDS)[number]);
     view.setInt8(o++, b.x);
     view.setInt8(o++, b.z);
     bytes[o++] = (Math.min(MAX_LEVEL, b.level) << 2) | (b.rot & 3);

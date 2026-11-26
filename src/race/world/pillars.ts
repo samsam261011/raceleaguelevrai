@@ -25,13 +25,15 @@ export interface PillarSpot {
 export function pillarSpots(world: World): PillarSpot[] {
   const list: PillarSpot[] = [];
   for (const cb of world.blocks) {
+    // Pas de pylônes sous une surface penchée, verticale ou enroulée
+    if (cb.def.twisted) continue;
     const len = cb.length;
     const count = Math.max(1, Math.round(len / TILE));
     for (let k = 0; k < count; k++) {
       const target = ((k + 0.5) * len) / count;
       let i = 0;
       while (i < cb.segLen.length - 1 && cb.cum[i + 1]! < target) i++;
-      const t = (target - cb.cum[i]!) / Math.max(1e-6, cb.segLen[i]!);
+      const t = (target - cb.cum[i]!) / Math.max(1e-6, cb.cum[i + 1]! - cb.cum[i]!);
       const x = cb.px[i]! + (cb.px[i + 1]! - cb.px[i]!) * t;
       const y = cb.py[i]! + (cb.py[i + 1]! - cb.py[i]!) * t;
       const z = cb.pz[i]! + (cb.pz[i + 1]! - cb.pz[i]!) * t;

@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { WALL_HEIGHT, WALL_INSET } from "../physics/constants";
-import { E, HALF, N, PIECES, rotSide, S, SIDE_DIR, SLAB_UNDER, STEP, TILE, W, type PathPoint, type PieceKind } from "../world/pieces";
+import { crossSection, E, HALF, N, PIECES, rotSide, S, SIDE_DIR, SLAB_UNDER, STEP, TILE, W, type PathPoint, type PieceKind } from "../world/pieces";
 import { cellKey, type CompiledBlock, type World } from "../world/world";
+import { densify, framePoint, pathFrames, SURFACE_COLUMNS, type PathFrame } from "../world/frames";
 import { pillarSpots } from "../world/pillars";
 import { col, Mesher } from "./geom";
 
@@ -164,36 +165,24 @@ export interface OpenSides {
 }
 const ALL_OPEN: OpenSides = { pos: true, neg: true, start: true, end: true };
 
-interface Frame {
+interface Frame extends PathFrame {
   p: PathPoint;
-  rx: number;
-  rz: number;
 }
 
-/** Échantillonne la ligne centrale tous les 2 m au plus. */
-function sample(path: PathPoint[]): { pts: PathPoint[]; frames: Frame[]; along: number[] } {
-  const pts: PathPoint[] = [];
-  path.forEach((p, i) => {
-    if (i === 0) return void pts.push(p);
-    const a = path[i - 1]!;
-    const steps = Math.max(1, Math.ceil(Math.hypot(p.x - a.x, p.z - a.z) / 2));
-    for (let k = 1; k <= steps; k++) {
-      const t = k / steps;
-      pts.push({ x: a.x + (p.x - a.x) * t, y: a.y + (p.y - a.y) * t, z: a.z + (p.z - a.z) * t });
-    }
-  });
-  const n = pts.length;
-  const frames = pts.map((p, i) => {
-    const a = pts[Math.max(0, i - 1)]!;
-    const b = pts[Math.min(n - 1, i + 1)]!;
-    const dx = b.x - a.x;
-    const dz = b.z - a.z;
-    const l = Math.hypot(dx, dz) || 1;
-    return { p, rx: -dz / l, rz: dx / l };
-  });
+/**
+ * Repères de la ligne centrale (les mêmes que la physique), complétés d'un repère tous les 2 m au plus
+ * pour la texture. Les repères ajoutés sont interpolés entre deux points d'origine : ils restent
+ * sur la surface de collision.
+ */
+function sample(path: PathPoint[]): { frames: Frame[]; along: number[] } {
+  const frames: Frame[] = densify(pathFrames(path)).map((f) => ({ ...f, p: { x: f.x, y: f.y, z: f.z } }));
   const along: number[] = [0];
-  for (let i = 1; i < n; i++) along.push(along[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z));
-  return { pts, frames, along };
+  for (let i = 1; i < frames.length; i++) {
+    const a = frames[i - 1]!.p;
+    const b = frames[i]!.p;
+    along.push(along[i - 1]! + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { frames, along };
 }
 
 /** Géométries d'une pièce, rangées par matériau, dans le repère de la pièce. */
@@ -201,10 +190,7 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
   const def = PIECES[kind];
   const { frames, along } = sample(def.path);
   const n = frames.length;
-  const at = (i: number, lat: number, dy = 0) => {
-    const f = frames[i]!;
-    return new THREE.Vector3(f.p.x + f.rx * lat, f.p.y + dy, f.p.z + f.rz * lat);
-  };
+  const at = (i: number, lat: number, dy = 0) => new THREE.Vector3(...framePoint(frames[i]!, lat, dy));
   const m: Record<MatKey, Mesher> = {
     asphalt: new Mesher(),
     plate: new Mesher(),
@@ -217,15 +203,56 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
   const length = along[n - 1]!;
 
   // Chaussée (les plaques gardent une texture alignée sur la case)
+  // Même coupe que la surface de collision : bandes étroites (pas de pli sur les pièces vrillées), mur éventuel
+  const sec = (i: number) => crossSection(def, along[i]! / length);
   for (let i = 0; i < n - 1; i++) {
     const v0 = along[i]! / TILE;
     const v1 = along[i + 1]! / TILE;
-    surface.quad(at(i, -HALF), at(i + 1, -HALF), at(i + 1, HALF), at(i, HALF), undefined, [
-      [0, v0],
-      [0, v1],
-      [1, v1],
-      [1, v0],
-    ]);
+    const a = sec(i);
+    const b = sec(i + 1);
+    for (let k = 0; k < a.length - 1; k++) {
+      const [la0, ha0] = a[k]!;
+      const [la1, ha1] = a[k + 1]!;
+      const [lb0, hb0] = b[k]!;
+      const [lb1, hb1] = b[k + 1]!;
+      // Bande de largeur nulle (pied du mur avant qu'il ne sorte) : rien à dessiner
+      if (Math.abs(la1 - la0) + Math.abs(ha1 - ha0) + Math.abs(lb1 - lb0) + Math.abs(hb1 - hb0) < 1e-6) continue;
+      const u0 = 0.5 + la0 / TILE;
+      const u1 = 0.5 + la1 / TILE;
+      surface.quad(at(i, la0, ha0), at(i + 1, lb0, hb0), at(i + 1, lb1, hb1), at(i, la1, ha1), undefined, [
+        [u0, v0],
+        [u0, v1],
+        [u1, v1],
+        [u1, v0],
+      ]);
+    }
+  }
+  if (def.sideWall) {
+    // Dos du mur en béton : la coupe décalée vers l'extérieur, puis le dessus de la paroi
+    const T = 0.5;
+    const back = (i: number) =>
+      sec(i)
+        .slice(SURFACE_COLUMNS)
+        .map(([l, h], k, arr) => {
+          // Normale extérieure du quart de tube (vers le bas et le dehors), horizontale sur la paroi
+          const ang = (Math.PI / 2) * Math.min(1, k / (arr.length - 2));
+          return [l + T * Math.sin(ang), h - T * Math.cos(ang)] as [number, number];
+        });
+    for (let i = 0; i < n - 1; i++) {
+      const a = back(i);
+      const b = back(i + 1);
+      const fa = sec(i).slice(SURFACE_COLUMNS);
+      const fb = sec(i + 1).slice(SURFACE_COLUMNS);
+      if (fa[fa.length - 1]![1] + fb[fb.length - 1]![1] < 0.05) continue;
+      for (let k = 0; k < a.length - 1; k++) {
+        m.concrete.quad(at(i, a[k + 1]![0], a[k + 1]![1]), at(i + 1, b[k + 1]![0], b[k + 1]![1]), at(i + 1, b[k]![0], b[k]![1]), at(i, a[k]![0], a[k]![1]), C.concreteShade);
+      }
+      const ta = fa[fa.length - 1]!;
+      const tb = fb[fb.length - 1]!;
+      const ba = a[a.length - 1]!;
+      const bb = b[b.length - 1]!;
+      m.concrete.quad(at(i, ta[0], ta[1]), at(i + 1, tb[0], tb[1]), at(i + 1, bb[0], bb[1]), at(i, ba[0], ba[1]), C.orange);
+    }
   }
 
   // Sens du virage : l'intérieur reçoit le vibreur
@@ -282,7 +309,7 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
       }
     }
     // Vibreur plat à la corde des virages
-    if (curved && s === innerSide && def.look === "road" && (has || kind !== "virage")) {
+    if (curved && s === innerSide && def.look === "road" && (has || kind !== "virage") && kind !== "looping" && kind !== "mur") {
       const a = (has ? inner : HALF) - 0.05;
       const b = a - 1.5;
       for (let i = 0; i < n - 1; i++) {

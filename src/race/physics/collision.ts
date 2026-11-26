@@ -1,6 +1,7 @@
-import { HALF, SLAB_UNDER } from "../world/pieces";
+import { densify, type PathFrame } from "../world/frames";
+import { crossSection, HALF, SLAB_UNDER } from "../world/pieces";
 import { CAP, PILLAR_RADIUS, pillarSpots } from "../world/pillars";
-import { groundAt, type CompiledBlock, type World } from "../world/world";
+import type { CompiledBlock, World } from "../world/world";
 import { WALL_HEIGHT, WALL_INSET } from "./constants";
 
 /**
@@ -69,28 +70,24 @@ class Builder {
   }
 }
 
-/** Direction « droite » du tracé en chaque point (moyenne des segments voisins), pour des bords sans trou dans les virages. */
-function rightAt(cb: CompiledBlock, i: number): [number, number] {
-  const n = cb.px.length;
-  const a = Math.max(0, i - 1);
-  const b = Math.min(n - 2, i);
-  let tx = cb.tx[a]! + cb.tx[b]!;
-  let tz = cb.tz[a]! + cb.tz[b]!;
-  const L = Math.sqrt(tx * tx + tz * tz) || 1;
-  tx /= L;
-  tz /= L;
-  // Droite du tracé : (-tz, tx). Mise à l'échelle pour garder la largeur dans les virages.
-  const s = 1 / Math.sqrt((cb.tx[a]! * tx + cb.tz[a]! * tz) * (cb.tx[b]! * tx + cb.tz[b]! * tz) || 1);
-  return [-tz * s, tx * s];
+/** Repères de la pièce, découpés comme à l'affichage (pas de 2 m au plus). */
+function blockFrames(cb: CompiledBlock): PathFrame[] {
+  const out: PathFrame[] = [];
+  for (let i = 0; i < cb.px.length; i++) {
+    out.push({ x: cb.px[i]!, y: cb.py[i]!, z: cb.pz[i]!, tx: 0, ty: 0, tz: 0, rx: cb.rx[i]!, ry: cb.ry[i]!, rz: cb.rz[i]!, ux: cb.ux[i]!, uy: cb.uy[i]!, uz: cb.uz[i]! });
+  }
+  return densify(out);
 }
 
-/** Extrude un profil [écart latéral, hauteur] le long de la pièce ; ferme les deux bouts si demandé. */
-function extrude(B: Builder, cb: CompiledBlock, rights: [number, number][], profile: [number, number][], caps: [boolean, boolean] = [false, false]): void {
-  const n = cb.px.length;
+/** Extrude un profil [écart latéral, hauteur au-dessus de la surface] le long de la pièce, dans ses repères ; ferme les bouts si demandé. */
+function extrude(B: Builder, frames: readonly PathFrame[], section: [number, number][] | ((i: number) => [number, number][]), caps: [boolean, boolean] = [false, false]): void {
+  const n = frames.length;
   const rows: number[][] = [];
+  const profile = typeof section === "function" ? section(0) : section;
   for (let i = 0; i < n; i++) {
-    const [rx, rz] = rights[i]!;
-    rows.push(profile.map(([lat, h]) => B.vert(cb.px[i]! + rx * lat, cb.py[i]! + h, cb.pz[i]! + rz * lat)));
+    const f = frames[i]!;
+    const prof = typeof section === "function" ? section(i) : section;
+    rows.push(prof.map(([lat, h]) => B.vert(f.x + f.rx * lat + f.ux * h, f.y + f.ry * lat + f.uy * h, f.z + f.rz * lat + f.uz * h)));
   }
   for (let i = 0; i < n - 1; i++) {
     const a = rows[i]!;
@@ -107,35 +104,47 @@ function extrude(B: Builder, cb: CompiledBlock, rights: [number, number][], prof
 /**
  * Faut-il fermer le bout du parapet ? Seulement si aucune pièce ne prolonge la route de ce côté :
  * un bout fermé au milieu d'une ligne droite accrocherait la voiture qui frotte le mur.
+ * On cherche une autre pièce dont un bout touche celui-ci (à 0,5 m près), avec un parapet du même côté.
  */
 function wallEndsHere(world: World, cb: CompiledBlock, end: 0 | 1, side: 1 | -1): boolean {
-  const n = cb.px.length;
-  const i = end === 0 ? 0 : n - 1;
-  const seg = end === 0 ? 0 : n - 2;
-  const dir = end === 0 ? -1 : 1;
-  const lat = (HALF - WALL_INSET / 2) * side;
-  const x = cb.px[i]! + cb.tx[seg]! * dir * 1 - cb.tz[seg]! * lat;
-  const z = cb.pz[i]! + cb.tz[seg]! * dir * 1 + cb.tx[seg]! * lat;
-  const h = groundAt(world, x, z, cb.py[i]! + 0.5, 1);
-  if (!h || h.block === cb) return true;
-  const other = h.block;
-  return Math.abs(h.groundY - cb.py[i]!) > 0.5 || !(other.borderPos || other.borderNeg);
+  const i = end === 0 ? 0 : cb.px.length - 1;
+  const x = cb.px[i]!;
+  const y = cb.py[i]!;
+  const z = cb.pz[i]!;
+  for (const o of world.blocks) {
+    if (o === cb) continue;
+    const m = o.px.length;
+    for (const j of [0, m - 1]) {
+      const dx = o.px[j]! - x;
+      const dy = o.py[j]! - y;
+      const dz = o.pz[j]! - z;
+      if (dx * dx + dy * dy + dz * dz > 0.25) continue;
+      // Même sens de « droite » : même côté ; sinon le côté est inversé
+      const same = o.rx[j]! * cb.rx[i]! + o.ry[j]! * cb.ry[i]! + o.rz[j]! * cb.rz[i]! > 0;
+      const s = same ? side : -side;
+      if (s > 0 ? o.borderPos : o.borderNeg) return false;
+    }
+  }
+  return true;
 }
 
 function blockCollision(world: World, cb: CompiledBlock, U: Builder, W: Builder): TriangleSoup {
-  const n = cb.px.length;
-  const rights = Array.from({ length: n }, (_, i) => rightAt(cb, i));
-
   // Dessus roulable
+  const frames = blockFrames(cb);
   const S = new Builder();
-  extrude(S, cb, rights, [
-    [-HALF, 0],
-    [HALF, 0],
-  ]);
+  // Avancement le long de la pièce, pour la coupe (un mur sort du sol puis y rentre)
+  const along = [0];
+  for (let i = 1; i < frames.length; i++) {
+    const a = frames[i - 1]!;
+    const b = frames[i]!;
+    along.push(along[i - 1]! + Math.sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y) + (b.z - a.z) * (b.z - a.z)));
+  }
+  const total = along[along.length - 1]!;
+  extrude(S, frames, (i) => crossSection(cb.def, along[i]! / total));
 
   // Flancs et dessous profilé, d'un bord à l'autre en passant sous la poutre
   const under: [number, number][] = [[HALF, 0], ...SLAB_UNDER.map(([l, h]) => [l, h] as [number, number])];
-  extrude(U, cb, rights, [...under, ...[...under].reverse().map(([l, h]) => [-l, h] as [number, number])]);
+  extrude(U, frames, [...under, ...[...under].reverse().map(([l, h]) => [-l, h] as [number, number])]);
 
   // Parapets : face intérieure, dessus, face extérieure, bouts fermés
   const inner = HALF - WALL_INSET;
@@ -148,7 +157,7 @@ function blockCollision(world: World, cb: CompiledBlock, U: Builder, W: Builder)
       [HALF, WALL_STOP],
       [HALF, -0.5],
     ];
-    extrude(W, cb, rights, side > 0 ? prof : prof.map(([l, h]) => [-l, h] as [number, number]).reverse(), [wallEndsHere(world, cb, 0, side), wallEndsHere(world, cb, 1, side)]);
+    extrude(W, frames, side > 0 ? prof : prof.map(([l, h]) => [-l, h] as [number, number]).reverse(), [wallEndsHere(world, cb, 0, side), wallEndsHere(world, cb, 1, side)]);
   }
 
   return S.soup()!;

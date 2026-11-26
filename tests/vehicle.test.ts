@@ -118,7 +118,7 @@ describe("moteur de conduite v3", () => {
     a.dispose();
   });
 
-  it("le grand saut dure longtemps, sans plongeon du nez, et freiner en l'air garde la voiture à plat et dans l'axe sans la ralentir", () => {
+  it("le grand saut dure longtemps, sans plongeon du nez, et freiner en l'air arrête les rotations sans ralentir la voiture", () => {
     const pilot = makeAutopilot(findRoute(GRAND_SAUT.blocks)!);
     const a = new Attempt(buildWorld(GRAND_SAUT));
     let air = 0;
@@ -128,8 +128,10 @@ describe("moteur de conduite v3", () => {
     let takeoff = 0;
     let peakNose = -1;
     let dive = 0;
+    let spin = 0;
     while (a.status === "running" && a.tick < 120 * 60) {
       const flying = !a.car.grounded;
+      const q0 = a.car;
       if (flying && air === 0) takeoff = Math.hypot(a.car.vx, a.car.vz);
       a.step(flying ? IN_BRAKE : pilot(a.car));
       if (!a.car.grounded) {
@@ -139,10 +141,12 @@ describe("moteur de conduite v3", () => {
         const nose = 2 * (c.qy * c.qz - c.qw * c.qx);
         peakNose = Math.max(peakNose, nose);
         dive = Math.max(dive, peakNose - nose);
-        // Écart entre le nez de la voiture et sa trajectoire, et inclinaison
-        const off = Math.abs(Math.atan2(Math.sin(a.car.heading - Math.atan2(a.car.vx, a.car.vz)), Math.cos(a.car.heading - Math.atan2(a.car.vx, a.car.vz))));
-        // Le nez se relève en quittant le tremplin : on regarde après 0,4 s de vol
-        if (air > 48) worst = Math.max(worst, off, roll(a.car));
+        // Freiner en l'air ne redresse pas la voiture (aucune force artificielle) : il arrête ses rotations.
+        // Après 0,4 s de vol, elle ne tourne presque plus et reste à plat.
+        if (air > 48) {
+          worst = Math.max(worst, roll(a.car));
+          spin = Math.max(spin, Math.abs(c.qx - q0.qx) + Math.abs(c.qy - q0.qy) + Math.abs(c.qz - q0.qz));
+        }
         lost = Math.max(lost, takeoff - Math.hypot(a.car.vx, a.car.vz));
       } else {
         longest = Math.max(longest, air);
@@ -153,6 +157,7 @@ describe("moteur de conduite v3", () => {
     expect(a.status).toBe("finished");
     expect(longest / 120).toBeGreaterThan(1.8);
     expect(worst).toBeLessThan(0.08);
+    expect(spin).toBeLessThan(0.001);
     expect(lost).toBeLessThan(1);
     expect(dive).toBeLessThan(0.03);
     a.dispose();

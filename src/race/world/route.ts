@@ -105,8 +105,10 @@ function push(r: Route, x: number, y: number, z: number): void {
   const n = r.px.length;
   if (n > 0) {
     const dx = x - r.px[n - 1]!;
+    const dy = y - r.py[n - 1]!;
     const dz = z - r.pz[n - 1]!;
-    const d = Math.sqrt(dx * dx + dz * dz);
+    // Distance réelle : un looping monte et redescend
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (d < 0.01) return;
     r.length += d;
   }

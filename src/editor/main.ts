@@ -366,6 +366,9 @@ const GLYPHS: Record<PieceKind, string> = {
   plaquePente: `<path d="M4 32h10l14-10h8v10z" fill="#b9bcc2"/>`,
   checkpoint: `<rect x="12" y="4" width="16" height="32" rx="2" fill="${ROAD}"/><path d="M8 20h24" stroke="#ffb23e" stroke-width="4"/><path d="M9 14v12M31 14v12" stroke="#ffb23e" stroke-width="3"/>`,
   arrivee: `<rect x="12" y="4" width="16" height="32" rx="2" fill="${ROAD}"/><path d="M12 8h16v8H12z" fill="#fff"/><path d="M12 8h4v4h-4zM20 8h4v4h-4zM16 12h4v4h-4zM24 12h4v4h-4z" fill="#14101f"/>`,
+  virageReleve: `<path d="M10 38V30A14 14 0 0 1 24 16h14" stroke="${ROAD}" stroke-width="11" fill="none"/><path d="M5 30A19 19 0 0 1 24 11h14" stroke="#ffb23e" stroke-width="2.5" fill="none"/>`,
+  mur: `<path d="M8 36h10V10h-6z" fill="${ROAD}"/><path d="M18 36h14" stroke="${ROAD}" stroke-width="5"/><path d="M24 30V14m-4 4 4-4 4 4" stroke="#ffb23e" stroke-width="2.2" fill="none" stroke-linecap="round"/>`,
+  looping: `<circle cx="20" cy="18" r="11" stroke="${ROAD}" stroke-width="5" fill="none"/><path d="M4 34h32" stroke="${ROAD}" stroke-width="5"/><path d="M26 9l3 3-4 1" stroke="#ffb23e" stroke-width="2" fill="none" stroke-linecap="round"/>`,
 };
 
 const palette = $("palette");

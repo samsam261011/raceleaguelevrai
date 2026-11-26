@@ -32,27 +32,26 @@ export const WHEELBASE = 3;
 export const MAX_WHEEL_ANGLE = 0.55;
 /** Adhérence des pneus (rapport entre force latérale max et charge). */
 export const TIRE_GRIP = 3.2;
+/** Un peu plus d'adhérence à l'arrière : à la limite, la voiture élargit (sous-virage) au lieu de partir en tête-à-queue. */
+export const TIRE_GRIP_REAR = 3.6;
 
-/** Gravité au sol (un peu plus forte que la vraie : la voiture colle à la piste). */
-export const GRAVITY = 26;
-/** Gravité ressentie en l'air : bien plus faible, pour des sauts longs et planés. */
-export const AIR_GRAVITY = 13;
-/** Appui aérodynamique : accélération vers la piste par m/s de vitesse. */
+/** Gravité (m/s²), la même partout. Assez faible pour des sauts longs ; l'adhérence à vitesse vient de l'appui. */
+export const GRAVITY = 13;
+/** Appui aérodynamique : accélération vers le bas de la voiture, par m/s de vitesse (roues au sol). */
 export const DOWNFORCE = 0.3;
-/** Contrôle en l'air : vitesse de rotation visée au volant (rad/s), et redressement automatique. */
+/** Aide au contre-braquage : angle de roue ajouté par unité de dérive, et plafond (rad). */
+export const COUNTER_STEER = 0.6;
+export const COUNTER_STEER_MAX = 0.25;
+/** En l'air : vitesse de lacet visée au volant (rad/s) et réactivité (par seconde). */
 export const AIR_STEER = 0.7;
-/** Vitesse à laquelle la rotation en l'air rejoint celle demandée (par seconde) : basse = doux. */
 export const AIR_STEER_RESPONSE = 3;
-/** Frein en l'air : la voiture cesse de tourner, se met à plat et s'aligne sur sa trajectoire, sans perdre de vitesse (par seconde). */
-export const AIR_BRAKE_RESPONSE = 4;
-export const AIR_LEVEL = 3;
-/** En l'air, vitesse à laquelle le tangage est annulé (pas de plongeon) et le roulis corrigé (par seconde). */
-export const AIR_PITCH_RESPONSE = 40;
-export const AIR_ROLL_RESPONSE = 6;
+/** En l'air : amortissement du tangage et du roulis (par seconde), et de toutes les rotations quand on freine. */
+export const AIR_PITCH_DAMPING = 30;
+export const AIR_ROLL_DAMPING = 4;
+export const AIR_BRAKE_DAMPING = 6;
 export const ANGULAR_DAMPING = 0.6;
-/** Anti-roulis au sol : vitesse de redressement par unité d'inclinaison (rad/s), et réactivité (par seconde). */
-export const ANTI_ROLL = 12;
-export const ANTI_ROLL_RESPONSE = 20;
+/** Barres anti-roulis : force par mètre d'écart de suspension entre la roue gauche et la droite (en g/m). */
+export const ANTI_ROLL_BAR = 60;
 
 /** Voiture retournée : sous ce « haut » (1 = à plat, 0 = sur le flanc) et cette vitesse (m/s) pendant ce temps (s), on la remet sur ses roues, un peu plus haut (m). */
 export const STUCK_UP = 0.3;
@@ -72,13 +71,21 @@ export const HULL_FRICTION = 0.25;
 export const HULL_ROUND = 0.2;
 export const ROAD_FRICTION = 0.6;
 
-/** Suspension : longueur au repos, enfoncement au repos, raideur, amortissement, débattement (m). */
-export const SUSPENSION_REST = 0.35;
-export const SUSPENSION_SAG = 0.1;
-export const SUSPENSION_STIFFNESS = 65;
-export const SUSPENSION_COMPRESSION = 4.5;
-export const SUSPENSION_RELAXATION = 5.5;
-export const SUSPENSION_TRAVEL = 0.3;
+/**
+ * Suspension : longueur libre, enfoncement au repos (= GRAVITY / (4 × raideur)), raideur, amortissement, débattement (m).
+ * La roue ne touche plus le sol au-delà de la longueur libre : l'enfoncement au repos est donc aussi
+ * ce que la roue peut descendre pour suivre un creux ou une crête sans décoller.
+ */
+export const SUSPENSION_REST = 0.45;
+export const SUSPENSION_SAG = 0.2;
+export const SUSPENSION_STIFFNESS = 16.25;
+/** Butée : sous cette longueur de suspension (m), la suspension durcit et amortit beaucoup plus (elle absorbe le choc au lieu de le renvoyer). */
+export const BUMP_STOP = 0.12;
+export const BUMP_STIFFNESS = 2.5;
+export const BUMP_DAMPING = 4;
+export const SUSPENSION_COMPRESSION = 4;
+export const SUSPENSION_RELAXATION = 6;
+export const SUSPENSION_TRAVEL = 0.42;
 
 /** Épaisseur des parapets, pris sur la largeur de la route, et leur hauteur. */
 export const WALL_INSET = 0.6;

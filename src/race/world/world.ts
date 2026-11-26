@@ -1,4 +1,5 @@
-import { HALF, PIECES, rotSide, rotXZ, SIDE_DIR, STEP, TILE, W, E, type PieceDef, type PieceKind } from "./pieces";
+import { pathFrames } from "./frames";
+import { HALF, PIECES, rotSide, rotXZ, SIDE_DIR, STEP, TILE, W, E, type PathPoint, type PieceDef, type PieceKind } from "./pieces";
 
 /** Une pièce posée : type, case, hauteur (en crans de 2 m), quarts de tour. */
 export interface Block {
@@ -35,7 +36,14 @@ export interface CompiledBlock {
   pz: Float64Array;
   /** Distance cumulée au début de chaque point. */
   cum: Float64Array;
-  /** Direction (au sol) et pente de chaque segment. */
+  /** Repère en chaque point : droite de la route (mise à l'échelle dans les coudes) et haut de la surface. */
+  rx: Float64Array;
+  ry: Float64Array;
+  rz: Float64Array;
+  ux: Float64Array;
+  uy: Float64Array;
+  uz: Float64Array;
+  /** Direction (au sol) et pente de chaque segment (nulles pour un segment vertical). */
   tx: Float64Array;
   tz: Float64Array;
   slope: Float64Array;
@@ -83,11 +91,18 @@ export function blockCells(b: Block): [number, number][] {
   });
 }
 
-/** Ligne centrale d'une pièce en coordonnées du monde. */
-export function blockPath(b: Block): { x: number; y: number; z: number }[] {
+/** Ligne centrale d'une pièce en coordonnées du monde (avec le haut de la surface, tourné lui aussi). */
+export function blockPath(b: Block): PathPoint[] {
   return PIECES[b.kind].path.map((p) => {
     const [rx, rz] = rotXZ(p.x, p.z, b.rot);
-    return { x: b.x * TILE + rx, y: b.level * STEP + p.y, z: b.z * TILE + rz };
+    const q: PathPoint = { x: b.x * TILE + rx, y: b.level * STEP + p.y, z: b.z * TILE + rz };
+    if (p.uy !== undefined) {
+      const [ux, uz] = rotXZ(p.ux ?? 0, p.uz ?? 0, b.rot);
+      q.ux = ux;
+      q.uy = p.uy;
+      q.uz = uz;
+    }
+    return q;
   });
 }
 
@@ -117,6 +132,9 @@ export function buildWorld(def: MapDefinition): World {
     const n = pts.length;
     const px = new Float64Array(n), py = new Float64Array(n), pz = new Float64Array(n), cum = new Float64Array(n);
     const tx = new Float64Array(n - 1), tz = new Float64Array(n - 1), slope = new Float64Array(n - 1), segLen = new Float64Array(n - 1);
+    const fr = pathFrames(pts);
+    const rx = Float64Array.from(fr, (f) => f.rx), ry = Float64Array.from(fr, (f) => f.ry), rz = Float64Array.from(fr, (f) => f.rz);
+    const ux = Float64Array.from(fr, (f) => f.ux), uy = Float64Array.from(fr, (f) => f.uy), uz = Float64Array.from(fr, (f) => f.uz);
     let acc = 0;
     for (let i = 0; i < n; i++) {
       px[i] = pts[i]!.x;
@@ -126,12 +144,14 @@ export function buildWorld(def: MapDefinition): World {
       if (i > 0) {
         const dx = px[i]! - px[i - 1]!;
         const dz = pz[i]! - pz[i - 1]!;
+        const dy = py[i]! - py[i - 1]!;
         const L = Math.sqrt(dx * dx + dz * dz);
         segLen[i - 1] = L;
-        tx[i - 1] = dx / L;
-        tz[i - 1] = dz / L;
-        slope[i - 1] = (py[i]! - py[i - 1]!) / L;
-        acc += L;
+        tx[i - 1] = L > 1e-9 ? dx / L : 0;
+        tz[i - 1] = L > 1e-9 ? dz / L : 0;
+        slope[i - 1] = L > 1e-9 ? dy / L : 0;
+        // Longueur réelle (un looping monte et redescend)
+        acc += Math.sqrt(dx * dx + dy * dy + dz * dz);
       }
       cum[i] = acc;
     }
@@ -155,7 +175,7 @@ export function buildWorld(def: MapDefinition): World {
       minZ = Math.min(minZ, z);
       maxZ = Math.max(maxZ, z);
     }
-    return { index, def: d, block: b, px, py, pz, cum, tx, tz, slope, segLen, length: acc, borderPos, borderNeg, cells: bc };
+    return { index, def: d, block: b, px, py, pz, cum, rx, ry, rz, ux, uy, uz, tx, tz, slope, segLen, length: acc, borderPos, borderNeg, cells: bc };
   });
 
   const gates: Gate[] = [];
@@ -213,6 +233,8 @@ export interface SurfaceHit {
 
 /** Position (x, z) sur une pièce : dedans ou pas, hauteur du sol, écart au centre. */
 export function onBlock(cb: CompiledBlock, x: number, z: number): SurfaceHit | null {
+  // Une surface penchée ou enroulée n'a pas une seule hauteur par point vu de dessus
+  if (cb.def.twisted) return null;
   const n = cb.px.length;
   let best = -1;
   let bestD = Infinity;
