@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { WALL_HEIGHT, WALL_INSET } from "../physics/constants";
-import { crossSection, E, HALF, N, PIECES, rotSide, S, SIDE_DIR, SLAB_UNDER, STEP, TILE, W, type PathPoint, type PieceKind } from "../world/pieces";
+import { columnsOf, crossSection, E, halfWidth, HALF, N, PIECES, rotSide, S, SIDE_DIR, SLAB_UNDER, STEP, TILE, underProfile, W, type PathPoint, type PieceKind } from "../world/pieces";
 import { cellKey, type CompiledBlock, type World } from "../world/world";
-import { densify, framePoint, pathFrames, SURFACE_COLUMNS, type PathFrame } from "../world/frames";
+import { densify, framePoint, pathFrames, type PathFrame } from "../world/frames";
 import { pillarSpots } from "../world/pillars";
 import { col, Mesher } from "./geom";
 
@@ -30,7 +30,6 @@ const C = {
 const SLAB_EDGE = SLAB_UNDER[0]![1] * -1;
 const GIRDER_DEPTH = SLAB_UNDER[SLAB_UNDER.length - 1]![1] * -1;
 export const SLAB_BOTTOM = GIRDER_DEPTH;
-const UNDER = SLAB_UNDER as [number, number][];
 
 // ---------- Textures dessinées (aucune image téléchargée) ----------
 function canvasTexture(size: number, draw: (g: CanvasRenderingContext2D, s: number) => void): THREE.CanvasTexture {
@@ -201,6 +200,8 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
   };
   const surface = def.look === "road" ? m.asphalt : m.plate;
   const length = along[n - 1]!;
+  /** Demi-largeur de la chaussée au repère i (20 m de chaque côté pour une double voie). */
+  const hw = (i: number) => halfWidth(def, along[i]! / length);
 
   // Chaussée (les plaques gardent une texture alignée sur la case)
   // Même coupe que la surface de collision : bandes étroites (pas de pli sur les pièces vrillées), mur éventuel
@@ -217,13 +218,16 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
       const [lb1, hb1] = b[k + 1]!;
       // Bande de largeur nulle (pied du mur avant qu'il ne sorte) : rien à dessiner
       if (Math.abs(la1 - la0) + Math.abs(ha1 - ha0) + Math.abs(lb1 - lb0) + Math.abs(hb1 - hb0) < 1e-6) continue;
-      const u0 = 0.5 + la0 / TILE;
-      const u1 = 0.5 + la1 / TILE;
+      // Texture calée sur le bord gauche : une voie par largeur de texture, ses traces au milieu de chaque voie
+      const ua0 = (la0 + hw(i)) / TILE;
+      const ua1 = (la1 + hw(i)) / TILE;
+      const ub0 = (lb0 + hw(i + 1)) / TILE;
+      const ub1 = (lb1 + hw(i + 1)) / TILE;
       surface.quad(at(i, la0, ha0), at(i + 1, lb0, hb0), at(i + 1, lb1, hb1), at(i, la1, ha1), undefined, [
-        [u0, v0],
-        [u0, v1],
-        [u1, v1],
-        [u1, v0],
+        [ua0, v0],
+        [ub0, v1],
+        [ub1, v1],
+        [ua1, v0],
       ]);
     }
   }
@@ -232,7 +236,7 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
     const T = 0.5;
     const back = (i: number) =>
       sec(i)
-        .slice(SURFACE_COLUMNS)
+        .slice(columnsOf(def))
         .map(([l, h], k, arr) => {
           // Normale extérieure du quart de tube (vers le bas et le dehors), horizontale sur la paroi
           const ang = (Math.PI / 2) * Math.min(1, k / (arr.length - 2));
@@ -241,8 +245,8 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
     for (let i = 0; i < n - 1; i++) {
       const a = back(i);
       const b = back(i + 1);
-      const fa = sec(i).slice(SURFACE_COLUMNS);
-      const fb = sec(i + 1).slice(SURFACE_COLUMNS);
+      const fa = sec(i).slice(columnsOf(def));
+      const fb = sec(i + 1).slice(columnsOf(def));
       if (fa[fa.length - 1]![1] + fb[fb.length - 1]![1] < 0.05) continue;
       for (let k = 0; k < a.length - 1; k++) {
         m.concrete.quad(at(i, a[k + 1]![0], a[k + 1]![1]), at(i + 1, b[k + 1]![0], b[k + 1]![1]), at(i + 1, b[k]![0], b[k]![1]), at(i, a[k]![0], a[k]![1]), C.concreteShade);
@@ -256,67 +260,86 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
   }
 
   // Sens du virage : l'intérieur reçoit le vibreur
+  // (une chicane, qui repart dans la même direction, n'est pas un virage)
   let turn = 0;
+  let headingChange = 0;
   if (n > 2) {
     const a = frames[0]!;
     const b = frames[n - 1]!;
     turn = a.rx * (b.p.x - a.p.x) + a.rz * (b.p.z - a.p.z);
+    headingChange = Math.abs(a.tx * b.tz - a.tz * b.tx);
   }
-  const curved = Math.abs(turn) > 1;
+  const curved = Math.abs(turn) > 1 && headingChange > 0.5;
   const innerSide = turn > 0 ? 1 : -1;
 
   // Parapets, lignes de rive et vibreurs
   for (const s of [1, -1]) {
     const has = s > 0 ? borders.pos : borders.neg;
-    const inner = HALF - WALL_INSET;
+    const inner = (i: number) => hw(i) - WALL_INSET;
     if (has) {
       // Profil du parapet : face intérieure, chanfrein orange, dessus, face extérieure jusqu'au bas de la dalle
-      const prof: [number, number, THREE.Color][] = [
-        [inner, 0, C.concrete],
-        [inner, WALL_HEIGHT - 0.24, C.orange],
-        [inner + 0.2, WALL_HEIGHT, C.concrete],
-        [HALF, WALL_HEIGHT, C.concrete],
-        [HALF, -SLAB_EDGE, C.concrete],
+      const prof = (i: number): [number, number, THREE.Color][] => [
+        [inner(i), 0, C.concrete],
+        [inner(i), WALL_HEIGHT - 0.24, C.orange],
+        [inner(i) + 0.2, WALL_HEIGHT, C.concrete],
+        [hw(i), WALL_HEIGHT, C.concrete],
+        [hw(i), -SLAB_EDGE, C.concrete],
       ];
       for (let i = 0; i < n - 1; i++) {
-        for (let k = 0; k < prof.length - 1; k++) {
-          const [l0, h0, c] = prof[k]!;
-          const [l1, h1] = prof[k + 1]!;
-          m.concrete.quad(at(i, s * l0, h0), at(i + 1, s * l0, h0), at(i + 1, s * l1, h1), at(i, s * l1, h1), c);
+        const pa = prof(i);
+        const pb = prof(i + 1);
+        for (let k = 0; k < pa.length - 1; k++) {
+          const [l0, h0, c] = pa[k]!;
+          const [l1, h1] = pa[k + 1]!;
+          const [m0, g0] = pb[k]!;
+          const [m1, g1] = pb[k + 1]!;
+          m.concrete.quad(at(i, s * l0, h0), at(i + 1, s * m0, g0), at(i + 1, s * m1, g1), at(i, s * l1, h1), c);
         }
       }
       // Bouts du parapet
       for (const i of [0, n - 1]) {
-        const pts = prof.map(([l, h]) => at(i, s * l, h));
+        const pts = prof(i).map(([l, h]) => at(i, s * l, h));
         for (let k = 1; k < pts.length - 1; k++) m.concrete.tri(pts[0]!, pts[k]!, pts[k + 1]!, C.concreteShade);
       }
       // Ligne de rive blanche
       if (def.look === "road") {
-        const a = inner - 0.55;
-        const b = a - 0.32;
-        for (let i = 0; i < n - 1; i++) m.paint.quad(at(i, s * b, 0.01), at(i + 1, s * b, 0.01), at(i + 1, s * a, 0.01), at(i, s * a, 0.01), C.white);
+        for (let i = 0; i < n - 1; i++) {
+          const a0 = inner(i) - 0.55;
+          const a1 = inner(i + 1) - 0.55;
+          m.paint.quad(at(i, s * (a0 - 0.32), 0.01), at(i + 1, s * (a1 - 0.32), 0.01), at(i + 1, s * a1, 0.01), at(i, s * a0, 0.01), C.white);
+        }
       }
     } else {
       // Pas de parapet : simple bord de dalle
-      for (let i = 0; i < n - 1; i++) m.concrete.quad(at(i, s * HALF, 0), at(i + 1, s * HALF, 0), at(i + 1, s * HALF, -SLAB_EDGE), at(i, s * HALF, -SLAB_EDGE), C.concrete);
+      for (let i = 0; i < n - 1; i++) m.concrete.quad(at(i, s * hw(i), 0), at(i + 1, s * hw(i + 1), 0), at(i + 1, s * hw(i + 1), -SLAB_EDGE), at(i, s * hw(i), -SLAB_EDGE), C.concrete);
       // Bande rouge et blanche : le vide est là
       const isOpen = s > 0 ? open.pos : open.neg;
       if (def.look !== "road" && isOpen) {
         for (let i = 0; i < n - 1; i++) {
           const c = Math.floor((along[i]! + along[i + 1]!) / 2 / 2) % 2 ? C.red : C.white;
-          m.paint.quad(at(i, s * (HALF - 0.9), 0.01), at(i + 1, s * (HALF - 0.9), 0.01), at(i + 1, s * HALF, 0.01), at(i, s * HALF, 0.01), c);
+          m.paint.quad(at(i, s * (hw(i) - 0.9), 0.01), at(i + 1, s * (hw(i + 1) - 0.9), 0.01), at(i + 1, s * hw(i + 1), 0.01), at(i, s * hw(i), 0.01), c);
         }
       }
     }
     // Vibreur plat à la corde des virages
-    if (curved && s === innerSide && def.look === "road" && (has || kind !== "virage") && kind !== "looping" && kind !== "mur") {
-      const a = (has ? inner : HALF) - 0.05;
-      const b = a - 1.5;
+    if (curved && s === innerSide && def.look === "road" && (has || kind !== "virage") && kind !== "looping" && kind !== "mur" && kind !== "virageLargeCourt") {
       for (let i = 0; i < n - 1; i++) {
+        const a0 = (has ? inner(i) : hw(i)) - 0.05;
+        const a1 = (has ? inner(i + 1) : hw(i + 1)) - 0.05;
         const c = Math.floor((along[i]! + along[i + 1]!) / 2 / 2.2) % 2 ? C.orange : C.white;
-        m.paint.quad(at(i, s * b, 0.02), at(i + 1, s * b, 0.02), at(i + 1, s * a, 0.06), at(i, s * a, 0.06), c);
-        m.paint.quad(at(i, s * a, 0.06), at(i + 1, s * a, 0.06), at(i + 1, s * a, 0.0), at(i, s * a, 0.0), c);
+        m.paint.quad(at(i, s * (a0 - 1.5), 0.02), at(i + 1, s * (a1 - 1.5), 0.02), at(i + 1, s * a1, 0.06), at(i, s * a0, 0.06), c);
+        m.paint.quad(at(i, s * a0, 0.06), at(i + 1, s * a1, 0.06), at(i + 1, s * a1, 0.0), at(i, s * a0, 0.0), c);
       }
+    }
+  }
+
+  // Double voie : tirets blancs entre les deux voies (ils apparaissent quand la route s'élargit)
+  if (def.look === "road" && def.width) {
+    for (let i = 0; i < n - 1; i++) {
+      if (hw(i) < HALF + 5 || hw(i + 1) < HALF + 5) continue;
+      const mid = (along[i]! + along[i + 1]!) / 2;
+      if (Math.floor(mid / 3) % 2) continue;
+      m.paint.quad(at(i, -0.18, 0.01), at(i + 1, -0.18, 0.01), at(i + 1, 0.18, 0.01), at(i, 0.18, 0.01), C.white);
     }
   }
 
@@ -356,25 +379,29 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
     }
   }
 
-  // Dessous profilé : bord de dalle, sous-face inclinée, poutre centrale
-  const profile: [number, number][] = [...UNDER, ...[...UNDER].reverse().map(([l, h]) => [-l, h] as [number, number])];
+  // Dessous profilé : bord de dalle, sous-face inclinée, poutre centrale (sans le dessus, déjà dessiné)
+  const profile = (i: number) => underProfile(hw(i)).slice(1, -1);
   for (let i = 0; i < n - 1; i++) {
-    for (let k = 0; k < profile.length - 1; k++) {
-      const [l0, h0] = profile[k]!;
-      const [l1, h1] = profile[k + 1]!;
+    const pa = profile(i);
+    const pb = profile(i + 1);
+    for (let k = 0; k < pa.length - 1; k++) {
+      const [l0, h0] = pa[k]!;
+      const [l1, h1] = pa[k + 1]!;
+      const [m0, g0] = pb[k]!;
+      const [m1, g1] = pb[k + 1]!;
       const flat = Math.abs(h0 - h1) < 0.01;
-      m.concrete.quad(at(i, l0, h0), at(i + 1, l0, h0), at(i + 1, l1, h1), at(i, l1, h1), flat ? C.underside : C.concreteShade);
+      m.concrete.quad(at(i, l0, h0), at(i + 1, m0, g0), at(i + 1, m1, g1), at(i, l1, h1), flat ? C.underside : C.concreteShade);
     }
   }
   // Bouts de la dalle (cachés quand une pièce suit)
-  const cap: [number, number][] = [[HALF, 0], ...profile, [-HALF, 0]];
   for (const i of [0, n - 1]) {
+    const cap: [number, number][] = [[hw(i), 0], ...profile(i), [-hw(i), 0]];
     const pts = cap.map(([l, h]) => at(i, l, h));
     const c = at(i, 0, -0.9);
     for (let k = 0; k < pts.length; k++) m.concrete.tri(c, pts[k]!, pts[(k + 1) % pts.length]!, C.concreteShade);
   }
 
-  if (def.gate) gate(def.gate, m);
+  if (def.gate) gate(def.gate, m, hw(0), (frames[0]!.p.x + frames[n - 1]!.p.x) / 2);
 
   const out: Partial<Record<MatKey, THREE.BufferGeometry>> = {};
   for (const k of Object.keys(m) as MatKey[]) if (!m[k].empty) out[k] = m[k].geometry();
@@ -382,13 +409,14 @@ function pieceParts(kind: PieceKind, borders: { pos: boolean; neg: boolean }, op
 }
 
 /** Portique au milieu de la pièce : arche de béton (départ, arrivée) ou arche orange (checkpoint). */
-function gate(kind: "start" | "finish" | "checkpoint", m: Record<MatKey, Mesher>): void {
+function gate(kind: "start" | "finish" | "checkpoint", m: Record<MatKey, Mesher>, roadHalf: number, cx: number): void {
   const cp = kind === "checkpoint";
   const H = cp ? 7.2 : 9;
-  const half = HALF + (cp ? 0.7 : 1.1);
+  const half = roadHalf + (cp ? 0.7 : 1.1);
   const w = cp ? 0.9 : 1.5;
   const body = cp ? C.orange : C.concrete;
-  const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  // Le portique est centré sur la ligne centrale de la pièce (entre les deux voies pour une double voie)
+  const V = (x: number, y: number, z: number) => new THREE.Vector3(cx + x, y, z);
   // Pylône chanfreiné (section octogonale), plus large en bas
   const pylon = (x: number) => {
     const ring = (r: number, y: number) =>
@@ -450,10 +478,12 @@ function gate(kind: "start" | "finish" | "checkpoint", m: Record<MatKey, Mesher>
         [0, 0.25],
       ]);
     }
-    m.checker.quad(V(-HALF + WALL_INSET, 0.015, -1), V(HALF - WALL_INSET, 0.015, -1), V(HALF - WALL_INSET, 0.015, 1), V(-HALF + WALL_INSET, 0.015, 1), undefined, [
+    const gx = roadHalf - WALL_INSET;
+    const rep = (9.4 * gx) / (HALF - WALL_INSET);
+    m.checker.quad(V(-gx, 0.015, -1), V(gx, 0.015, -1), V(gx, 0.015, 1), V(-gx, 0.015, 1), undefined, [
       [0, 0],
-      [9.4, 0],
-      [9.4, 1],
+      [rep, 0],
+      [rep, 1],
       [0, 1],
     ]);
   } else {

@@ -218,6 +218,14 @@ export class CarSim {
         this.impact = sp > after ? sp - after : 0;
       }
     }
+    if (this.onWall && ny < 0.5 && ny > -0.5) {
+      // Un parapet est vertical : il ne peut pas soulever la voiture. À haute vitesse, le frottement du choc
+      // contre sa face (la caisse s'écrase un peu sur ses suspensions au même moment) la poussait vers le haut,
+      // jusqu'à 5 m/s, et la faisait passer par-dessus. On retire cette montée ; la chute, elle, reste libre.
+      const lv = this.body.linvel();
+      const rise = before.y > 0 ? before.y : 0;
+      if (lv.y > rise + C.WALL_LIFT_MAX) this.body.setLinvel({ x: lv.x, y: rise, z: lv.z }, true);
+    }
     if (this.onWall) {
       // Frotter un parapet coûte du temps : la voiture perd un peu de vitesse à chaque pas de contact
       const lv = this.body.linvel();

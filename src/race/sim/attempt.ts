@@ -1,7 +1,6 @@
 import { CarSim, copyCar, type CarState } from "../physics/car";
 import { DT } from "../physics/constants";
 import type { InputBits } from "../physics/input";
-import { HALF } from "../world/pieces";
 import type { World } from "../world/world";
 
 export type AttemptStatus = "running" | "finished" | "fell";
@@ -63,7 +62,7 @@ export class Attempt {
       if ((s0 < 0 && s1 < 0) || (s0 > 0 && s1 > 0) || s0 === s1) continue;
       // Dans le portique : sur la largeur de la route et pas trop haut ni trop bas
       const lat = (b.x - g.x) * -g.dz + (b.z - g.z) * g.dx;
-      if (lat > HALF + 0.5 || lat < -HALF - 0.5 || b.y < g.y - 2 || b.y > g.y + 9) continue;
+      if (lat > g.half + 0.5 || lat < -g.half - 0.5 || b.y < g.y - 2 || b.y > g.y + 9) continue;
       const time = Math.round((this.tick - 1 + s0 / (s0 - s1)) * DT * 1000) / 1000;
       if (g.kind === "checkpoint" && !this.passed.has(g.block)) {
         this.passed.add(g.block);

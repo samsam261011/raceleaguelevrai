@@ -3,12 +3,12 @@ import type { Block, MapDefinition } from "../world";
 const B = (kind: Block["kind"], x: number, z: number, rot = 0, level = 0): Block => ({ kind, x, z, rot, level });
 
 /**
- * Map 1 : « Le Grand Saut ». Ligne droite, virage, montée, élan puis grand saut au-dessus du vide,
+ * Ancienne map 1 (prototype), gardée pour les tests de conduite : ses chiffres de référence ont été mesurés dessus. Ligne droite, virage, montée, élan puis grand saut au-dessus du vide,
  * grand virage en hauteur, descente et sprint final.
  */
 export const GRAND_SAUT: MapDefinition = {
-  id: "grand-saut",
-  name: "Le Grand Saut",
+  id: "prototype",
+  name: "Prototype",
   blocks: [
     B("depart", 0, 0),
     B("route", 0, 1),

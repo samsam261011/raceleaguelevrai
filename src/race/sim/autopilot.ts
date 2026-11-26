@@ -53,8 +53,19 @@ export function makeAutopilot(route: Route, lookahead = 14, maxSpeedInTurn = 34)
     const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
     const side = -(lx * dx + ly * dy + lz * dz) / len;
     let bits = 0;
-    if (side > 0.04) bits |= IN_RIGHT;
-    else if (side < -0.04) bits |= IN_LEFT;
+    if (car.grounded) {
+      if (side > 0.04) bits |= IN_RIGHT;
+      else if (side < -0.04) bits |= IN_LEFT;
+    } else {
+      // En l'air, viser un point ne sert à rien (la trajectoire ne change plus) : on garde le nez dans l'axe
+      // de la vitesse, pour se poser bien droit
+      const vh = Math.sqrt(car.vx * car.vx + car.vz * car.vz);
+      if (vh > 1) {
+        const vs = -(lx * car.vx + lz * car.vz) / vh;
+        if (vs > 0.03) bits |= IN_RIGHT;
+        else if (vs < -0.03) bits |= IN_LEFT;
+      }
+    }
 
     // Virage à venir : on ralentit si le chemin tourne beaucoup plus loin
     let far = target;

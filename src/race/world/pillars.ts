@@ -1,4 +1,4 @@
-import { TILE } from "./pieces";
+import { HALF, TILE } from "./pieces";
 import { cellKey, onBlock, type World } from "./world";
 
 /** Profondeur de la poutre sous la route : le haut d'un pylône est à cette distance sous la dalle. */
@@ -38,18 +38,26 @@ export function pillarSpots(world: World): PillarSpot[] {
       const y = cb.py[i]! + (cb.py[i + 1]! - cb.py[i]!) * t;
       const z = cb.pz[i]! + (cb.pz[i + 1]! - cb.pz[i]!) * t;
       const top = y - GIRDER_DEPTH;
-      // Le pylône descend jusqu'au sol. S'il tomberait sur une autre pièce (un pont au-dessus d'une route),
-      // on n'en met pas : il boucherait la route du dessous.
-      const bottom = world.groundY - 0.2;
-      let blocked = false;
-      for (const j of world.cells.get(cellKey(Math.round(x / TILE), Math.round(z / TILE))) ?? []) {
-        const o = world.blocks[j]!;
-        if (o === cb) continue;
-        const h = onBlock(o, x, z);
-        if (h && h.groundY < top - 0.5) blocked = true;
+      // Une double voie repose sur deux pylônes côte à côte, un sous chaque voie
+      const hw = cb.hw[i]! + (cb.hw[i + 1]! - cb.hw[i]!) * t;
+      const rl = Math.sqrt(cb.rx[i]! * cb.rx[i]! + cb.rz[i]! * cb.rz[i]!);
+      const offsets = hw > HALF + 1 ? [hw / 2, -hw / 2] : [0];
+      for (const off of offsets) {
+        const sx = x + (cb.rx[i]! / rl) * off;
+        const sz = z + (cb.rz[i]! / rl) * off;
+        // Le pylône descend jusqu'au sol. S'il tomberait sur une autre pièce (un pont au-dessus d'une route),
+        // on n'en met pas : il boucherait la route du dessous.
+        const bottom = world.groundY - 0.2;
+        let blocked = false;
+        for (const j of world.cells.get(cellKey(Math.round(sx / TILE), Math.round(sz / TILE))) ?? []) {
+          const o = world.blocks[j]!;
+          if (o === cb) continue;
+          const h = onBlock(o, sx, sz);
+          if (h && h.groundY < top - 0.5) blocked = true;
+        }
+        if (blocked || top - bottom < 0.6) continue;
+        list.push({ x: sx, z: sz, top, bottom, dx: cb.tx[i]!, dz: cb.tz[i]! });
       }
-      if (blocked || top - bottom < 0.6) continue;
-      list.push({ x, z, top, bottom, dx: cb.tx[i]!, dz: cb.tz[i]! });
     }
   }
   return list;

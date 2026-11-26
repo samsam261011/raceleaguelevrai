@@ -217,7 +217,7 @@ export function decorate(scene: THREE.Scene, world: World): void {
     const rx = -start.dz;
     const rz = start.dx;
     for (const side of [1, -1]) {
-      const off = HALF + 22;
+      const off = start.half + 22;
       const ok = [-20, 0, 20].every((t) => trackDist(start.x + rx * side * off + start.dx * t, start.z + rz * side * off + start.dz * t) > 12);
       if (!ok) continue;
       const stand = grandstand();

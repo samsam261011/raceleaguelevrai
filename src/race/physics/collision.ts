@@ -1,5 +1,5 @@
 import { densify, type PathFrame } from "../world/frames";
-import { crossSection, HALF, SLAB_UNDER } from "../world/pieces";
+import { crossSection, halfWidth, underProfile } from "../world/pieces";
 import { CAP, PILLAR_RADIUS, pillarSpots } from "../world/pillars";
 import type { CompiledBlock, World } from "../world/world";
 import { WALL_HEIGHT, WALL_INSET } from "./constants";
@@ -142,22 +142,28 @@ function blockCollision(world: World, cb: CompiledBlock, U: Builder, W: Builder)
   const total = along[along.length - 1]!;
   extrude(S, frames, (i) => crossSection(cb.def, along[i]! / total));
 
+  // Demi-largeur en chaque repère (une double voie fait 20 m de chaque côté)
+  const hwAt = (i: number) => halfWidth(cb.def, total > 0 ? along[i]! / total : 0);
+
   // Flancs et dessous profilé, d'un bord à l'autre en passant sous la poutre
-  const under: [number, number][] = [[HALF, 0], ...SLAB_UNDER.map(([l, h]) => [l, h] as [number, number])];
-  extrude(U, frames, [...under, ...[...under].reverse().map(([l, h]) => [-l, h] as [number, number])]);
+  extrude(U, frames, (i) => underProfile(hwAt(i)));
 
   // Parapets : face intérieure, dessus, face extérieure, bouts fermés
-  const inner = HALF - WALL_INSET;
   for (const side of [1, -1] as const) {
     const has = side > 0 ? cb.borderPos : cb.borderNeg;
     if (!has) continue;
-    const prof: [number, number][] = [
-      [inner, -0.2],
-      [inner, WALL_STOP],
-      [HALF, WALL_STOP],
-      [HALF, -0.5],
-    ];
-    extrude(W, frames, side > 0 ? prof : prof.map(([l, h]) => [-l, h] as [number, number]).reverse(), [wallEndsHere(world, cb, 0, side), wallEndsHere(world, cb, 1, side)]);
+    const prof = (i: number): [number, number][] => {
+      const hw = hwAt(i);
+      const inner = hw - WALL_INSET;
+      const p: [number, number][] = [
+        [inner, -0.2],
+        [inner, WALL_STOP],
+        [hw, WALL_STOP],
+        [hw, -0.5],
+      ];
+      return side > 0 ? p : p.map(([l, h]) => [-l, h] as [number, number]).reverse();
+    };
+    extrude(W, frames, prof, [wallEndsHere(world, cb, 0, side), wallEndsHere(world, cb, 1, side)]);
   }
 
   return S.soup()!;

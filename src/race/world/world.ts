@@ -1,5 +1,5 @@
 import { pathFrames } from "./frames";
-import { HALF, PIECES, rotSide, rotXZ, SIDE_DIR, STEP, TILE, W, E, type PathPoint, type PieceDef, type PieceKind } from "./pieces";
+import { HALF, halfWidth, PIECES, rotSide, rotXZ, SIDE_DIR, STEP, TILE, W, E, type PathPoint, type PieceDef, type PieceKind } from "./pieces";
 
 /** Une pièce posée : type, case, hauteur (en crans de 2 m), quarts de tour. */
 export interface Block {
@@ -48,6 +48,8 @@ export interface CompiledBlock {
   tz: Float64Array;
   slope: Float64Array;
   segLen: Float64Array;
+  /** Demi-largeur de la chaussée en chaque point (10 m, 20 m pour une double voie). */
+  hw: Float64Array;
   length: number;
   /** Rebords après fusion avec les voisins (deux routes côte à côte n'ont pas de rebord entre elles). */
   borderPos: boolean;
@@ -64,6 +66,8 @@ export interface Gate {
   /** Direction de passage. */
   dx: number;
   dz: number;
+  /** Demi-largeur du passage. */
+  half: number;
 }
 
 export interface World {
@@ -155,6 +159,8 @@ export function buildWorld(def: MapDefinition): World {
       }
       cum[i] = acc;
     }
+    const hw = new Float64Array(n);
+    for (let i = 0; i < n; i++) hw[i] = halfWidth(d, acc > 0 ? cum[i]! / acc : 0);
     // Rebords des pièces droites : supprimés si une autre pièce est collée de ce côté, à la même hauteur
     let borderPos = d.borders.pos;
     let borderNeg = d.borders.neg;
@@ -175,22 +181,24 @@ export function buildWorld(def: MapDefinition): World {
       minZ = Math.min(minZ, z);
       maxZ = Math.max(maxZ, z);
     }
-    return { index, def: d, block: b, px, py, pz, cum, rx, ry, rz, ux, uy, uz, tx, tz, slope, segLen, length: acc, borderPos, borderNeg, cells: bc };
+    return { index, def: d, block: b, px, py, pz, cum, rx, ry, rz, ux, uy, uz, tx, tz, slope, segLen, hw, length: acc, borderPos, borderNeg, cells: bc };
   });
 
   const gates: Gate[] = [];
   for (const cb of blocks) {
     if (!cb.def.gate) continue;
-    // Le portique est au milieu de la pièce
+    // Le portique est au milieu de la pièce (droite) : entre ses deux bouts
     const [fx, fz] = rotXZ(0, 1, cb.block.rot);
+    const m = cb.px.length - 1;
     gates.push({
       block: cb.index,
       kind: cb.def.gate,
-      x: cb.block.x * TILE,
+      x: (cb.px[0]! + cb.px[m]!) / 2,
       y: cb.block.level * STEP,
-      z: cb.block.z * TILE,
+      z: (cb.pz[0]! + cb.pz[m]!) / 2,
       dx: fx,
       dz: fz,
+      half: cb.hw[0]!,
     });
   }
 
@@ -264,7 +272,8 @@ export function onBlock(cb: CompiledBlock, x: number, z: number): SurfaceHit | n
   const tx = cb.tx[best]!;
   const tz = cb.tz[best]!;
   const lateral = (x - cb.px[best]!) * -tz + (z - cb.pz[best]!) * tx;
-  if (lateral > HALF || lateral < -HALF) return null;
+  const half = cb.hw[best]! + (cb.hw[best + 1]! - cb.hw[best]!) * t;
+  if (lateral > half || lateral < -half) return null;
   const groundY = cb.py[best]! + (cb.py[best + 1]! - cb.py[best]!) * t;
   return { block: cb, groundY, lateral, tx, tz, slope: cb.slope[best]! };
 }
@@ -284,12 +293,38 @@ export function groundAt(world: World, x: number, z: number, y: number, up = 1):
   return best;
 }
 
+/**
+ * Pièces qui se gênent : deux pièces dans une même case à moins de 3 crans (6 m) l'une de l'autre en hauteur.
+ * En dessous, la dalle du dessus toucherait la voiture qui passe dessous. Renvoie les paires d'indices.
+ */
+export function blockClashes(blocks: Block[]): [number, number][] {
+  const occ = new Map<string, { i: number; lo: number; hi: number }[]>();
+  const out: [number, number][] = [];
+  blocks.forEach((b, i) => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const p of blockPath(b)) {
+      lo = Math.min(lo, p.y);
+      hi = Math.max(hi, p.y);
+    }
+    lo /= STEP;
+    hi /= STEP;
+    for (const [x, z] of blockCells(b)) {
+      const k = cellKey(x, z);
+      const list = occ.get(k) ?? occ.set(k, []).get(k)!;
+      for (const o of list) if (lo < o.hi + 3 && o.lo < hi + 3 && !out.some(([a, c]) => a === o.i && c === i)) out.push([o.i, i]);
+      list.push({ i, lo, hi });
+    }
+  });
+  return out;
+}
+
 /** Vérifie qu'une map est jouable : un seul départ, au moins une arrivée. */
 export function validateMap(blocks: Block[]): string | null {
-  const starts = blocks.filter((b) => b.kind === "depart").length;
+  const starts = blocks.filter((b) => PIECES[b.kind].gate === "start").length;
   if (starts === 0) return "Pose une pièce Départ";
   if (starts > 1) return "Il faut un seul Départ";
-  if (!blocks.some((b) => b.kind === "arrivee")) return "Pose une pièce Arrivée";
+  if (!blocks.some((b) => PIECES[b.kind].gate === "finish")) return "Pose une pièce Arrivée";
   return null;
 }
 

@@ -106,6 +106,12 @@ export const WALL_HEIGHT = 1;
 /** Contact avec un parapet : glisse et rebond. */
 export const WALL_FRICTION = 0.15;
 export const WALL_BOUNCE = 0.15;
+/**
+ * Vitesse verticale (m/s) qu'un choc contre un parapet peut ajouter en un pas, au plus.
+ * Au-delà, c'est le frottement du choc qui soulève la voiture : on le retire (voir car.ts).
+ * Assez haut pour ne jamais gêner une vraie montée (tremplin, virage relevé) en frottant le mur.
+ */
+export const WALL_LIFT_MAX = 0.6;
 /** Choc contre un parapet : part de la vitesse perdue en le prenant de face (moins en biais). */
 export const WALL_IMPACT = 0.4;
 /** Vitesse conservée à chaque pas passé contre un parapet. */
