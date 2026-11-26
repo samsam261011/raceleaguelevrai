@@ -5,6 +5,7 @@ import { SUSPENSION_REST, SUSPENSION_SAG, WHEELS } from "../physics/constants";
 import type { World } from "../world/world";
 import { buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
+import { DrivingEffects } from "./effects";
 import { buildEnvironment, buildSky, enableSunShadows, followSunShadow, shadowQuality, type Lighting } from "./environment";
 
 /** Réglages de la caméra de course (en mètres et en degrés). Aucun effet de vitesse : la caméra reste fixe derrière la voiture. */
@@ -38,6 +39,8 @@ export class RaceView {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(CAM.fov, 1, 0.3, 4000);
+  /** Traces de pneus, poussière, étincelles. */
+  readonly fx = new DrivingEffects();
   private readonly car: CarMesh;
   private readonly ghost: CarMesh;
   private readonly ghostLabel: THREE.Sprite;
@@ -74,7 +77,7 @@ export class RaceView {
     this.ghostLabel.position.set(0, 2.9, 0);
     this.ghost.root.add(this.ghostLabel);
     this.ghost.root.visible = false;
-    this.scene.add(this.car.root, this.ghost.root);
+    this.scene.add(this.car.root, this.ghost.root, this.fx.group);
     this.resize();
     window.addEventListener("resize", () => this.resize());
   }
@@ -150,6 +153,7 @@ export class RaceView {
     // La zone d'ombre est centrée un peu devant la voiture : c'est là que regarde la caméra
     const ahead = this.shadowReach * 0.45;
     followSunShadow(this.lighting.sun, p.x + fx * ahead, this.camY, p.z + fz * ahead);
+    this.fx.update(dt);
     this.renderer.render(this.scene, this.camera);
   }
 

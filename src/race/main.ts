@@ -5,6 +5,7 @@ import { copyCar, initPhysics } from "./physics/car";
 import { DT } from "./physics/constants";
 import { IN_BRAKE, IN_DRIVE, IN_LEFT, IN_RIGHT, IN_THROTTLE } from "./physics/input";
 import { RaceView } from "./render/view";
+import { RaceAudio } from "./audio/sound";
 import { ATTEMPTS_PER_MATCH, formatDelta, formatTime, medalFor, Session } from "./session/session";
 import { Attempt } from "./sim/attempt";
 import { makeAutopilot } from "./sim/autopilot";
@@ -46,6 +47,19 @@ document.title = `${mapDef.name} · RaceLeague`;
 $("mapName").textContent = mapDef.name;
 
 const hud = new Hud();
+const audio = new RaceAudio();
+// Le son ne peut démarrer qu'après un geste du joueur
+for (const ev of ["keydown", "pointerdown", "touchstart"] as const) window.addEventListener(ev, () => audio.unlock(), { passive: true });
+// M : couper ou remettre le son
+let volumeBeforeMute = audio.level || 0.7;
+window.addEventListener("keydown", (e) => {
+  if (e.code !== "KeyM" || e.repeat || settingsOpen()) return;
+  if (audio.level > 0) {
+    volumeBeforeMute = audio.level;
+    audio.setVolume(0);
+  } else audio.setVolume(volumeBeforeMute);
+  syncVolume();
+});
 const view = new RaceView($("scene") as HTMLCanvasElement, world);
 
 /** Classé (race.html?classe) : 10 essais. Solo : essais illimités. */
@@ -115,6 +129,18 @@ function closeSettings(): void {
   $("settingsBtn").focus();
 }
 $("settingsBtn").addEventListener("click", openSettings);
+// Volume (réglé dans les paramètres, gardé d'une partie à l'autre)
+const volumeInput = $("volume") as HTMLInputElement;
+function syncVolume(): void {
+  volumeInput.value = String(Math.round(audio.level * 100));
+  $("volumeValue").textContent = audio.level > 0 ? `${Math.round(audio.level * 100)} %` : "Coupé";
+}
+volumeInput.addEventListener("input", () => {
+  audio.unlock();
+  audio.setVolume(Number(volumeInput.value) / 100);
+  syncVolume();
+});
+syncVolume();
 $("closeSettings").addEventListener("click", closeSettings);
 
 function goMenu(): void {
@@ -135,6 +161,7 @@ function beginAttempt(): void {
   ghost = best && best.time !== null ? { attempt: new Attempt(world), inputs: best.inputs.slice(), time: best.time } : null;
   pilot = pilotRoute ? makeAutopilot(pilotRoute) : null;
   view.snapCamera();
+  view.fx.reset();
   hud.setAttempt(session.current, session.attempts);
   hud.setTime(0);
   hud.clearFlash();
@@ -147,9 +174,12 @@ function stepSim(bits: number): void {
   const a = attempt!;
   // Pilote de développement : il conduit quand on tient l'accélérateur
   const ev = a.step(pilot && bits & IN_THROTTLE ? pilot(a.car) : bits);
+  view.fx.step(a.car);
+  audio.events(a.car);
   if (ev) {
     const ref = session.best?.splits?.[ev.index];
     hud.showSplit(ev.index, ev.time, ref === undefined ? null : ev.time - ref);
+    audio.checkpoint(ref === undefined ? null : ev.time <= ref);
   }
   if (ghost && ghost.attempt.status === "running") {
     const i = ghost.attempt.tick;
@@ -162,6 +192,8 @@ function finishAttempt(a: Attempt): void {
   const time = status === "finished" ? a.finishTime : null;
   const { isBest, previousBest } = session.record({ time, splits: a.splits.slice(), inputs: a.inputs.slice() });
   refreshBest();
+  if (time !== null) audio.finish(isBest);
+  else if (status === "fell") audio.fall();
   if (time !== null) {
     savePersonalBest(time);
     const delta = previousBest === null ? "" : `<span class="delta ${time - previousBest <= 0 ? "ahead" : "behind"}">${formatDelta(time - previousBest)}</span>`;
@@ -216,6 +248,7 @@ function frame(now: number): void {
     // Première touche : le chrono démarre, et la voiture bouge dès cette image
     phase = "running";
     accumulator = DT;
+    audio.start();
   }
   if (phase === "running") {
     // Pas fixe : autant de pas de 1/120 s que le temps écoulé en contient
@@ -241,6 +274,8 @@ function frame(now: number): void {
   const g = ghost && ghost.attempt.tick > 0 ? { prev: ghost.attempt.prev, cur: ghost.attempt.car, time: ghost.time } : null;
   view.render(prev, a.car, alpha, g, dt);
   hud.setSpeed(Math.hypot(a.car.vx, a.car.vz));
+  audio.setRunning(phase === "running");
+  audio.update(a.car, !settingsOpen() && phase !== "results" && !document.hidden);
   requestAnimationFrame(frame);
 }
 

@@ -26,6 +26,13 @@ export interface WheelState {
   contact: boolean;
   /** Rotation de la roue sur son axe (rad), calculée par la physique. */
   spin: number;
+  /** Point de contact avec la route et normale de la route (valables si contact). Pour les traces et la poussière. */
+  px: number;
+  py: number;
+  pz: number;
+  nx: number;
+  ny: number;
+  nz: number;
 }
 
 /** Instantané de la voiture après un pas. Objet simple : se copie, se compare, s'interpole. */
@@ -53,6 +60,19 @@ export interface CarState {
   grounded: boolean;
   onWall: boolean;
   fell: boolean;
+  /** Glisse : vitesse vers le côté de la voiture (m/s, + = vers sa gauche). */
+  slide: number;
+  /** Pédale d'accélérateur (0 à 1) et frein appuyé : pour le son du moteur. */
+  throttle: number;
+  braking: boolean;
+  /** Vitesse perdue (m/s) dans un choc contre un parapet pendant ce pas, sinon 0. */
+  impact: number;
+  /** Vitesse de chute (m/s) au moment où les roues retouchent le sol pendant ce pas, sinon 0. */
+  landing: number;
+  /** Point de contact avec le parapet (valable si onWall). */
+  wallX: number;
+  wallY: number;
+  wallZ: number;
 }
 
 export const WHEELS = C.WHEELS;
@@ -153,7 +173,9 @@ export class CarSim {
     const ramp = C.THROTTLE_RAMP_START + (C.THROTTLE_RAMP - C.THROTTLE_RAMP_START) * clamp(v / C.THROTTLE_RAMP_SPEED, 0, 1);
     this.throttle = has(input, IN_THROTTLE) ? Math.min(1, this.throttle + C.DT / ramp) : 0;
     const wasOnWall = this.onWall;
+    const wasGrounded = this.state.grounded;
     this.onWall = false;
+    this.impact = 0;
     const before = this.body.linvel();
 
     const dt = C.DT / C.SUBSTEPS;
@@ -172,6 +194,12 @@ export class CarSim {
             nx = n.x;
             ny = n.y;
             nz = n.z;
+            const p = m.solverContactPoint(0);
+            if (p) {
+              this.wallX = p.x;
+              this.wallY = p.y;
+              this.wallZ = p.z;
+            }
           }
         });
       });
@@ -186,6 +214,8 @@ export class CarSim {
         const keep = 1 - C.WALL_IMPACT * facing;
         const lv = this.body.linvel();
         this.body.setLinvel({ x: lv.x * keep, y: lv.y * keep, z: lv.z * keep }, true);
+        const after = Math.sqrt(lv.x * lv.x + lv.y * lv.y + lv.z * lv.z) * keep;
+        this.impact = sp > after ? sp - after : 0;
       }
     }
     if (this.onWall) {
@@ -205,6 +235,9 @@ export class CarSim {
     const t = this.body.translation();
     if (t.y < this.world.groundY + 0.2) this.fell = true;
     this.state = this.snapshot();
+    // Réception : les roues retouchent le sol, avec la vitesse de chute d'avant le pas
+    this.state.landing = !wasGrounded && this.state.grounded && before.y < 0 ? -before.y : 0;
+    this.state.braking = has(input, IN_BRAKE);
     return this.state;
   }
 
@@ -373,6 +406,10 @@ export class CarSim {
   }
 
   private lastWheelAngle = 0;
+  private impact = 0;
+  private wallX = 0;
+  private wallY = 0;
+  private wallZ = 0;
   private started = false;
   /** Les roues ne roulent que sur les dalles, jamais sur le dessus des parapets. */
   private readonly wheelFilter = (c: RAPIER.Collider) => !this.notRoad.has(c.handle);
@@ -384,6 +421,9 @@ export class CarSim {
     const fx = 2 * (q.x * q.z + q.w * q.y);
     const fy = 2 * (q.y * q.z - q.w * q.x);
     const fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+    const lx = 1 - 2 * (q.y * q.y + q.z * q.z);
+    const ly = 2 * (q.x * q.y + q.w * q.z);
+    const lz = 2 * (q.x * q.z - q.w * q.y);
     const wheels: WheelState[] = [];
     let grounded = false;
     for (let i = 0; i < 4; i++) {
@@ -391,7 +431,19 @@ export class CarSim {
       if (contact) grounded = true;
       // Avant le premier pas, Rapier n'a pas encore mesuré la suspension : la voiture est posée, au repos
       const len = this.vehicle.wheelSuspensionLength(i) ?? C.SUSPENSION_REST - C.SUSPENSION_SAG;
-      wheels.push({ drop: contact ? len : this.started ? C.SUSPENSION_REST : C.SUSPENSION_REST - C.SUSPENSION_SAG, contact, spin: this.vehicle.wheelRotation(i) ?? 0 });
+      const p = contact ? this.vehicle.wheelContactPoint(i) : null;
+      const n = contact ? this.vehicle.wheelContactNormal(i) : null;
+      wheels.push({
+        drop: contact ? len : this.started ? C.SUSPENSION_REST : C.SUSPENSION_REST - C.SUSPENSION_SAG,
+        contact,
+        spin: this.vehicle.wheelRotation(i) ?? 0,
+        px: p ? p.x : 0,
+        py: p ? p.y : 0,
+        pz: p ? p.z : 0,
+        nx: n ? n.x : 0,
+        ny: n ? n.y : 1,
+        nz: n ? n.z : 0,
+      });
     }
     return {
       x: t.x,
@@ -412,6 +464,14 @@ export class CarSim {
       grounded,
       onWall: this.onWall,
       fell: this.fell,
+      slide: lv.x * lx + lv.y * ly + lv.z * lz,
+      throttle: this.throttle,
+      braking: false,
+      impact: this.impact,
+      landing: 0,
+      wallX: this.wallX,
+      wallY: this.wallY,
+      wallZ: this.wallZ,
     };
   }
 
