@@ -1,24 +1,20 @@
 import * as THREE from "three";
 import type { CarState } from "../physics/car";
 import { formatTime } from "../session/session";
-import { SUSPENSION_REST, SUSPENSION_SAG, VMAX, WHEELS } from "../physics/constants";
+import { SUSPENSION_REST, SUSPENSION_SAG, WHEELS } from "../physics/constants";
 import type { World } from "../world/world";
 import { buildWorldMesh } from "./blockMesh";
 import { buildCarMesh, buildGhostMesh, type CarMesh } from "./carMesh";
 import { buildEnvironment, buildSky, enableSunShadows, followSunShadow, shadowQuality, type Lighting } from "./environment";
-import { SpeedLines } from "./speedLines";
 
-/** Réglages de la caméra de course (en mètres et en degrés). */
+/** Réglages de la caméra de course (en mètres et en degrés). Aucun effet de vitesse : la caméra reste fixe derrière la voiture. */
 const CAM = {
   back: 7.2,
-  backFast: 1.0,
   height: 2.7,
-  heightFast: 0.35,
   /** Point visé : loin devant, juste au-dessus de la route. */
   ahead: 30,
   aim: 1.3,
   fov: 70,
-  fovFast: 16,
 };
 
 /** Carte d'environnement (reflets) faite à partir du ciel seul. */
@@ -49,12 +45,10 @@ export class RaceView {
   private camYaw = 0;
   private camY = 0;
   private camReady = false;
-  private shakeT = 0;
-  private readonly speedLines: SpeedLines | null;
   private readonly lighting: Lighting;
   private readonly shadowReach: number;
 
-  constructor(canvas: HTMLCanvasElement, world: World, fx: HTMLCanvasElement | null = null) {
+  constructor(canvas: HTMLCanvasElement, world: World) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -73,7 +67,6 @@ export class RaceView {
     // Reflets de la carrosserie : une petite carte d'environnement tirée du ciel (calculée une fois)
     this.scene.environment = skyEnvironment(this.renderer);
     this.scene.environmentIntensity = 0.9;
-    this.speedLines = fx ? new SpeedLines(fx) : null;
     this.car = buildCarMesh();
     this.ghost = buildGhostMesh();
     this.ghostLabel = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, depthTest: false }));
@@ -92,7 +85,6 @@ export class RaceView {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.speedLines?.resize(w, h);
   }
 
   /** Remet la caméra derrière la voiture (au début d'un essai). */
@@ -142,28 +134,13 @@ export class RaceView {
     this.camY += (p.y - this.camY) * (1 - Math.exp(-dt * (rising ? 14 : cur.grounded ? 10 : 6)));
     if (this.camY < p.y - 0.15) this.camY = p.y - 0.15;
     if (this.camY > p.y + 1.5) this.camY = p.y + 1.5;
-    const k = Math.min(1.3, Math.max(0, cur.speed) / VMAX);
     const fx = Math.sin(this.camYaw);
     const fz = Math.cos(this.camYaw);
-    const back = CAM.back + k * CAM.backFast;
-    const height = CAM.height - k * CAM.heightFast;
-    // Petite vibration à pleine vitesse
-    this.shakeT += dt;
-    const shake = Math.max(0, k - 0.8) * 0.06;
-    const sx = Math.sin(this.shakeT * 41) * shake;
-    const sy = Math.sin(this.shakeT * 53 + 1) * shake;
-    this.camera.position.set(p.x - fx * back + fz * sx, this.camY + height + sy, p.z - fz * back - fx * sx);
+    this.camera.position.set(p.x - fx * CAM.back, this.camY + CAM.height, p.z - fz * CAM.back);
     this.camera.lookAt(p.x + fx * CAM.ahead, this.camY + CAM.aim, p.z + fz * CAM.ahead);
-    // L'angle de vue s'élargit avec la vitesse
-    const fov = CAM.fov + k * CAM.fovFast;
-    if (Math.abs(this.camera.fov - fov) > 0.05) {
-      this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-dt * 5));
-      this.camera.updateProjectionMatrix();
-    }
     // La zone d'ombre est centrée un peu devant la voiture : c'est là que regarde la caméra
     const ahead = this.shadowReach * 0.45;
     followSunShadow(this.lighting.sun, p.x + fx * ahead, this.camY, p.z + fz * ahead);
-    this.speedLines?.draw(k, dt);
     this.renderer.render(this.scene, this.camera);
   }
 

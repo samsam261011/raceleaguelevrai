@@ -149,7 +149,9 @@ export class CarSim {
     const target = (has(input, IN_RIGHT) ? 1 : 0) - (has(input, IN_LEFT) ? 1 : 0);
     const maxDelta = C.STEER_RESPONSE * C.DT;
     this.steer += clamp(target - this.steer, -maxDelta, maxDelta);
-    this.throttle = has(input, IN_THROTTLE) ? Math.min(1, this.throttle + C.DT / C.THROTTLE_RAMP) : 0;
+    const v = this.state.speed < 0 ? -this.state.speed : this.state.speed;
+    const ramp = C.THROTTLE_RAMP_START + (C.THROTTLE_RAMP - C.THROTTLE_RAMP_START) * clamp(v / C.THROTTLE_RAMP_SPEED, 0, 1);
+    this.throttle = has(input, IN_THROTTLE) ? Math.min(1, this.throttle + C.DT / ramp) : 0;
     const wasOnWall = this.onWall;
     this.onWall = false;
     const before = this.body.linvel();

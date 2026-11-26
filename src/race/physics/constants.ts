@@ -11,8 +11,15 @@ export const SUBSTEPS = 2;
 export const VMAX = 75;
 /** Accélération moteur (m/s²). Elle reste forte longtemps et ne s'éteint qu'en approchant de VMAX. */
 export const ENGINE = 19;
-/** Temps pour que l'accélérateur donne toute sa poussée (s) : le départ monte en puissance au lieu de bondir. */
+/**
+ * Temps pour que l'accélérateur donne toute sa poussée (s).
+ * À l'arrêt, la réponse est quasi immédiate ; lancée, la poussée monte plus doucement
+ * pour que l'arrière (propulsion) ne décroche pas quand on remet les gaz, par exemple à la réception d'un saut.
+ */
+export const THROTTLE_RAMP_START = 0.12;
 export const THROTTLE_RAMP = 0.45;
+/** Vitesse (m/s) à partir de laquelle la montée des gaz est la plus douce. */
+export const THROTTLE_RAMP_SPEED = 20;
 /** Freinage (m/s²). */
 export const BRAKE = 60;
 /** Marche arrière. */
