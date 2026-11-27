@@ -51,8 +51,6 @@ export class RaceView {
   private camReady = false;
   private readonly lighting: Lighting;
   private shadowReach = 55;
-  /** Éléments du décor (falaises, rochers…) qui projettent une ombre en qualité détaillée seulement. */
-  private readonly decorCasters: THREE.Object3D[] = [];
   private readonly adaptive: AdaptiveResolution;
   graphics: Graphics;
 
@@ -63,10 +61,8 @@ export class RaceView {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.lighting = buildEnvironment(this.scene, world);
-    this.scene.traverse((o) => {
-      if (o.castShadow) this.decorCasters.push(o);
-    });
     this.graphics = loadGraphics();
     this.adaptive = new AdaptiveResolution(pixelRatioFor(this.graphics), (r) => this.setPixelRatio(r));
     this.applyGraphics(this.graphics);
@@ -90,27 +86,20 @@ export class RaceView {
 
   /**
    * Change la qualité graphique, en pleine course si besoin.
-   * Fluide : résolution normale (baisse toute seule si l'ordinateur peine), ombres nettes limitées à la piste et à la voiture.
-   * Détaillé : double densité de pixels, ombres douces plus fines, le décor projette aussi son ombre.
+   * Fluide : densité de pixels plafonnée à 1,5 (baisse toute seule jusqu'à 1 si l'ordinateur peine), carte d'ombre 1024.
+   * Détaillé : densité jusqu'à 2, carte d'ombre plus fine. Le rendu (ombres douces, décor) est le même dans les deux cas.
    */
   applyGraphics(g: Graphics): void {
     this.graphics = g;
     const detailed = g === "detaille";
-    const q = detailed ? shadowQuality() : { mapSize: 1024, radius: 55 };
+    const q = detailed ? shadowQuality() : { mapSize: 1024, radius: 60 };
     const sun = this.lighting.sun;
-    this.renderer.shadowMap.type = detailed ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     if (sun.shadow.map) {
       sun.shadow.map.dispose();
       sun.shadow.map = null;
     }
     enableSunShadows(sun, q.mapSize, q.radius);
     this.shadowReach = q.radius;
-    for (const o of this.decorCasters) o.castShadow = detailed;
-    // Le type d'ombre change le code des matériaux : on les fait recompiler
-    this.scene.traverse((o) => {
-      const m = (o as THREE.Mesh).material;
-      if (m) for (const mat of Array.isArray(m) ? m : [m]) mat.needsUpdate = true;
-    });
     this.adaptive.reset(pixelRatioFor(g));
   }
 

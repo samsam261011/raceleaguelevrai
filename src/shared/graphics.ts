@@ -1,8 +1,8 @@
 /**
  * Qualité graphique, réglée dans les paramètres et gardée d'une partie à l'autre.
- * « fluide » (par défaut) : image en résolution normale (pas de rendu en double densité sur les écrans Retina),
- * ombres simples limitées à la piste et à la voiture, et résolution qui baisse toute seule si l'ordinateur peine.
- * « detaille » : rendu complet (double densité, ombres douces sur tout le décor).
+ * « fluide » (par défaut) : même rendu que « détaillé », mais densité de pixels plafonnée à 1,5 sur les écrans haute définition
+ * et carte d'ombre plus petite ; si l'ordinateur peine, la densité baisse par paliers, jamais sous 1 (l'image reste nette).
+ * « detaille » : densité jusqu'à 2 et ombres plus fines.
  */
 export type Graphics = "fluide" | "detaille";
 
@@ -27,7 +27,7 @@ export function saveGraphics(g: Graphics): void {
 /** Densité de pixels de départ pour un réglage donné. */
 export function pixelRatioFor(g: Graphics): number {
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-  return g === "detaille" ? Math.min(dpr, 2) : Math.min(dpr, 1);
+  return g === "detaille" ? Math.min(dpr, 2) : Math.min(dpr, 1.5);
 }
 
 /**
@@ -41,7 +41,8 @@ export class AdaptiveResolution {
   constructor(
     private ratio: number,
     private readonly apply: (ratio: number) => void,
-    private readonly min = 0.6,
+    // Sous 1, l'image devient floue et pixelisée : on ne descend jamais plus bas
+    private readonly min = 1,
   ) {}
 
   /** À appeler à chaque image avec sa durée (s). */
