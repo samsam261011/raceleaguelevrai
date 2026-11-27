@@ -11,14 +11,14 @@ beforeAll(() => initPhysics());
 
 /** Réglages du pilote automatique (regard devant, vitesse visée en virage) qui ont donné le temps auteur de chaque map. */
 const PILOT: Record<string, [number, number]> = {
-  "le-grand-saut": [22, 38],
+  "le-grand-saut": [18, 999],
   spirale: [22, 48],
-  "fil-du-rasoir": [22, 48],
-  "double-boucle": [16, 38],
-  "la-chute": [16, 999],
-  serpentin: [22, 38],
-  "pont-casse": [16, 38],
-  tremplin: [22, 38],
+  "fil-du-rasoir": [26, 48],
+  "double-boucle": [26, 42],
+  "la-chute": [26, 999],
+  serpentin: [26, 42],
+  "pont-casse": [22, 999],
+  tremplin: [22, 56],
 };
 
 describe("les 8 maps officielles", () => {

@@ -75,6 +75,12 @@ export const STUCK_LIFT = 1.2;
 /** Caisse : masse (kg), boîte de collision [demi-largeur, demi-hauteur, demi-longueur, hauteur du centre]. */
 export const MASS = 1000;
 export const HULL: readonly [number, number, number, number] = [1.1, 0.3, 2.4, 0.85];
+/**
+ * Pare-chocs : deux boudins le long des flancs, à hauteur des roues, qui ne touchent que les obstacles (parapets, pylônes), jamais la route.
+ * Comme une vraie voiture, ce sont eux (roues et boucliers) qui heurtent un mur, près du centre de gravité :
+ * le choc fait pivoter et rebondir la voiture sans la coucher. [demi-largeur hors tout, rayon, demi-longueur, hauteur du centre]
+ */
+export const BUMPER: readonly [number, number, number, number] = [1.22, 0.25, 2.45, 0.47];
 /** Centre de gravité bas : la voiture ne bascule pas en virage. */
 export const CENTER_OF_MASS_Y = 0.3;
 /** Inertie [tangage, lacet, roulis] : un roulis très résistant, pour une voiture qui reste à plat. */
@@ -105,23 +111,12 @@ export const WALL_INSET = 0.6;
 export const WALL_HEIGHT = 1;
 /** Contact avec un parapet : glisse et rebond. */
 export const WALL_FRICTION = 0.15;
-export const WALL_BOUNCE = 0.15;
-/**
- * Vitesse verticale (m/s) qu'un choc contre un parapet peut ajouter en un pas, au plus.
- * Au-delà, c'est le frottement du choc qui soulève la voiture : on le retire (voir car.ts).
- * Assez haut pour ne jamais gêner une vraie montée (tremplin, virage relevé) en frottant le mur.
+export const WALL_BOUNCE = 0.25;
+/*
+ * Pas de règle spéciale pour les chocs : la perte de vitesse, le rebond et la rotation viennent du moteur physique
+ * (rebond et frottement ci-dessus, pare-chocs bas BUMPER, adhérence des pneus). Ancien réglage retiré le 27/11 :
+ * perte de vitesse forcée au choc, ralentissement forcé contre le mur, montée et roulis bridés.
  */
-export const WALL_LIFT_MAX = 0.6;
-/** Choc contre un parapet : part de la vitesse perdue en le prenant de face (moins en biais). */
-export const WALL_IMPACT = 0.4;
-/** Vitesse conservée à chaque pas passé contre un parapet. */
-export const WALL_SPEED_KEEP = 0.994;
-/**
- * Contre un parapet : part du roulis gardée à chaque pas. La caisse de collision est une boîte simple, plus haute
- * que les flancs et les roues d'une vraie voiture : le choc la frappait au-dessus du centre de gravité et la
- * couchait sur le côté. Une vraie voiture touche le mur avec ses roues et ses boucliers, à hauteur du centre de gravité.
- */
-export const WALL_ROLL_KEEP = 0.5;
 
 /** Roues dans le repère de la voiture (+x à gauche, +z vers l'avant) : avant gauche, avant droite, arrière gauche, arrière droite. Rayon et largeur (m). */
 export const WHEELS = [
