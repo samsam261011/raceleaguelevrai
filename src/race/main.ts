@@ -13,6 +13,7 @@ import { customMapId, decodeMap } from "./world/code";
 import { DEFAULT_MAP, MAPS } from "./world/maps";
 import { findRoute } from "./world/route";
 import { buildWorld, medalsFrom, validateMap, type MapDefinition } from "./world/world";
+import { saveGraphics } from "../shared/graphics";
 import { Hud } from "./ui/hud";
 
 /**
@@ -141,6 +142,21 @@ volumeInput.addEventListener("input", () => {
   syncVolume();
 });
 syncVolume();
+// Graphismes : fluide (par défaut) ou détaillé, appliqué tout de suite
+const gfxButtons = [...document.querySelectorAll<HTMLButtonElement>(".gfx-choice button")];
+function syncGraphics(): void {
+  for (const b of gfxButtons) b.setAttribute("aria-checked", String(b.dataset.gfx === view.graphics));
+}
+for (const b of gfxButtons) {
+  b.addEventListener("click", () => {
+    const g = b.dataset.gfx === "detaille" ? "detaille" : "fluide";
+    saveGraphics(g);
+    view.applyGraphics(g);
+    view.warmUp();
+    syncGraphics();
+  });
+}
+syncGraphics();
 $("closeSettings").addEventListener("click", closeSettings);
 
 function goMenu(): void {

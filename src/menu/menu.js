@@ -2,6 +2,7 @@ import * as THREE from "three";
 import "./menu.css";
 import { mountKeybindEditor } from "../shared/keybindEditor";
 import { menuMaps } from "./officialMaps";
+import { loadGraphics, pixelRatioFor, saveGraphics } from "../shared/graphics";
 
 // Menu principal : profil, mode classé, salles, maps, menu latéral et décor 3D.
 // Les données (adversaires, classements, temps) sont des exemples tant que le serveur n'existe pas.
@@ -560,7 +561,7 @@ import { menuMaps } from "./officialMaps";
   const canvas = $("scene");
   let renderer;
   try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); } catch (e) { return; }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(pixelRatioFor(loadGraphics()));
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x6b3a5a, 60, 170);
 
@@ -665,10 +666,12 @@ import { menuMaps } from "./officialMaps";
   window.addEventListener("resize", resize); resize();
 
   const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let low = false;
+  // Graphismes : même réglage que dans la course (fluide par défaut)
+  $("lowGfx").checked = loadGraphics() === "detaille";
   $("lowGfx").addEventListener("change", (e) => {
-    low = e.target.checked;
-    renderer.setPixelRatio(low ? 0.6 : Math.min(window.devicePixelRatio || 1, 2)); resize();
+    const g = e.target.checked ? "detaille" : "fluide";
+    saveGraphics(g);
+    renderer.setPixelRatio(pixelRatioFor(g)); resize();
   });
 
   const clock = new THREE.Clock();

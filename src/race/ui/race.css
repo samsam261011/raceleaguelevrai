@@ -134,3 +134,11 @@ body.touch .keys-hint { display: none; }
 .volume-row input { width: 100%; accent-color: var(--accent); }
 .volume-row b { font-family: var(--font-display); text-align: right; color: var(--accent); }
 .settings-sub kbd { font: inherit; font-weight: 700; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--panel-line); }
+
+/* Graphismes */
+.gfx-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gfx-choice button { font: inherit; color: inherit; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--panel-line); background: rgba(255,255,255,.04); cursor: pointer; }
+.gfx-choice button b { font-family: var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
+.gfx-choice button small { color: var(--ink-dim); font-size: 12px; }
+.gfx-choice button[aria-checked="true"] { border-color: var(--accent); background: rgba(255,178,62,.14); }
+.gfx-choice button[aria-checked="true"] b { color: var(--accent); }
