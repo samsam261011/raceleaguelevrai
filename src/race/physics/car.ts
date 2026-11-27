@@ -14,6 +14,15 @@ import { has, IN_BRAKE, IN_LEFT, IN_RIGHT, IN_THROTTLE, type InputBits } from ".
  * exactement la même course sur toutes les machines. Notre propre code n'utilise que + - * / et Math.sqrt.
  */
 
+/** Groupes de collision : appartenance (16 bits hauts) et ce avec quoi on entre en contact (16 bits bas). */
+const G_ROAD = 1;
+const G_OBSTACLE = 2;
+const G_HULL = 4;
+const G_BUMPER = 8;
+/** Parapets : les seuls obstacles que touchent les pare-chocs (le dessous des dalles et les pylônes restent pour la caisse). */
+const G_WALL = 16;
+const groups = (member: number, filter: number) => (member << 16) | filter;
+
 let ready: Promise<void> | null = null;
 /** À attendre une fois avant la première course (charge le moteur physique). */
 export function initPhysics(): Promise<void> {
@@ -84,6 +93,7 @@ export class CarSim {
   private readonly rw: RAPIER.World;
   private readonly body: RAPIER.RigidBody;
   private readonly hull: RAPIER.Collider;
+  private readonly bumpers: RAPIER.Collider[];
   private readonly vehicle: RAPIER.DynamicRayCastVehicleController;
   /** Collider de surface → index de la pièce. */
   private readonly surfaceBlock = new Map<number, number>();
@@ -106,19 +116,26 @@ export class CarSim {
 
     let col = collisionCache.get(world);
     if (!col) collisionCache.set(world, (col = buildCollision(world)));
-    const solid = (soup: { vertices: Float32Array; indices: Uint32Array }, friction: number) =>
-      rw.createCollider(RAPIER.ColliderDesc.trimesh(soup.vertices, soup.indices).setFriction(friction).setRestitution(C.WALL_BOUNCE));
-    for (const { block, soup } of col.surfaces) this.surfaceBlock.set(solid(soup, C.ROAD_FRICTION).handle, block);
-    if (col.underside) this.notRoad.add(solid(col.underside, C.WALL_FRICTION).handle);
+    const solid = (soup: { vertices: Float32Array; indices: Uint32Array }, friction: number, group: number) =>
+      rw.createCollider(
+        RAPIER.ColliderDesc.trimesh(soup.vertices, soup.indices).setFriction(friction).setRestitution(C.WALL_BOUNCE).setCollisionGroups(groups(group, 0xffff)),
+      );
+    for (const { block, soup } of col.surfaces) this.surfaceBlock.set(solid(soup, C.ROAD_FRICTION, G_ROAD).handle, block);
+    if (col.underside) this.notRoad.add(solid(col.underside, C.WALL_FRICTION, G_OBSTACLE).handle);
     if (col.walls) {
-      const w = solid(col.walls, C.WALL_FRICTION);
+      const w = solid(col.walls, C.WALL_FRICTION, G_WALL);
       this.walls.add(w.handle);
       this.notRoad.add(w.handle);
     }
     for (const p of col.pillars) {
-      const shaft = rw.createCollider(RAPIER.ColliderDesc.cylinder(p.shaftHalf, p.radius).setTranslation(p.x, p.shaftY, p.z).setFriction(C.WALL_FRICTION).setRestitution(C.WALL_BOUNCE));
+      const shaft = rw.createCollider(RAPIER.ColliderDesc.cylinder(p.shaftHalf, p.radius)
+          .setTranslation(p.x, p.shaftY, p.z)
+          .setFriction(C.WALL_FRICTION)
+          .setRestitution(C.WALL_BOUNCE)
+          .setCollisionGroups(groups(G_OBSTACLE, 0xffff)),
+      );
       const cap = rw.createCollider(
-        RAPIER.ColliderDesc.cuboid(p.capHalf[0], p.capHalf[1], p.capHalf[2]).setTranslation(p.x, p.capY, p.z).setRotation(p.capRot).setFriction(C.WALL_FRICTION).setRestitution(C.WALL_BOUNCE),
+        RAPIER.ColliderDesc.cuboid(p.capHalf[0], p.capHalf[1], p.capHalf[2]).setTranslation(p.x, p.capY, p.z).setRotation(p.capRot).setFriction(C.WALL_FRICTION).setRestitution(C.WALL_BOUNCE).setCollisionGroups(groups(G_OBSTACLE, 0xffff)),
       );
       this.notRoad.add(shaft.handle);
       this.notRoad.add(cap.handle);
@@ -141,8 +158,23 @@ export class CarSim {
         .setTranslation(0, cy, 0)
         .setMassProperties(C.MASS, { x: 0, y: C.CENTER_OF_MASS_Y - cy, z: 0 }, { x: C.INERTIA[0], y: C.INERTIA[1], z: C.INERTIA[2] }, { x: 0, y: 0, z: 0, w: 1 })
         .setFriction(C.HULL_FRICTION)
-        .setRestitution(C.WALL_BOUNCE),
+        .setRestitution(C.WALL_BOUNCE)
+        .setCollisionGroups(groups(G_HULL, G_ROAD | G_OBSTACLE | G_WALL)),
       this.body,
+    );
+    // Pare-chocs : deux boudins le long des flancs, à hauteur des roues, arrondis aux deux bouts (ils glissent sur un mur pris en biais)
+    const [bx, br, bz, bcy] = C.BUMPER;
+    this.bumpers = [1, -1].map((side) =>
+      rw.createCollider(
+        RAPIER.ColliderDesc.capsule(bz - br, br)
+          .setTranslation(side * (bx - br), bcy, 0)
+          .setRotation({ x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 })
+          .setDensity(0)
+          .setFriction(C.HULL_FRICTION)
+          .setRestitution(C.WALL_BOUNCE)
+          .setCollisionGroups(groups(G_BUMPER, G_WALL)),
+        this.body,
+      ),
     );
 
     const v = rw.createVehicleController(this.body);
@@ -172,7 +204,6 @@ export class CarSim {
     const v = this.state.speed < 0 ? -this.state.speed : this.state.speed;
     const ramp = C.THROTTLE_RAMP_START + (C.THROTTLE_RAMP - C.THROTTLE_RAMP_START) * clamp(v / C.THROTTLE_RAMP_SPEED, 0, 1);
     this.throttle = has(input, IN_THROTTLE) ? Math.min(1, this.throttle + C.DT / ramp) : 0;
-    const wasOnWall = this.onWall;
     const wasGrounded = this.state.grounded;
     this.onWall = false;
     this.impact = 0;
@@ -180,64 +211,32 @@ export class CarSim {
 
     const dt = C.DT / C.SUBSTEPS;
     // Contact avec un parapet, vérifié à chaque sous-pas (un choc bref peut se finir avant la fin du pas)
-    let nx = 0;
-    let ny = 0;
-    let nz = 0;
     for (let k = 0; k < C.SUBSTEPS; k++) {
       this.substep(input, dt);
-      this.rw.contactPairsWith(this.hull, (other) => {
-        if (!this.walls.has(other.handle)) return;
-        this.rw.contactPair(this.hull, other, (m) => {
-          if (m.numContacts() > 0) {
-            this.onWall = true;
-            const n = m.normal();
-            nx = n.x;
-            ny = n.y;
-            nz = n.z;
-            const p = m.solverContactPoint(0);
-            if (p) {
-              this.wallX = p.x;
-              this.wallY = p.y;
-              this.wallZ = p.z;
+      for (const part of [this.hull, ...this.bumpers]) {
+        this.rw.contactPairsWith(part, (other) => {
+          if (!this.walls.has(other.handle)) return;
+          this.rw.contactPair(part, other, (m) => {
+            if (m.numContacts() > 0) {
+              this.onWall = true;
+              const p = m.solverContactPoint(0);
+              if (p) {
+                this.wallX = p.x;
+                this.wallY = p.y;
+                this.wallZ = p.z;
+              }
             }
-          }
+          });
         });
-      });
-    }
-
-    if (this.onWall && !wasOnWall) {
-      // Choc contre un parapet : plus on arrive de face, plus on perd de vitesse (de rien en frôlant à 60 % de face)
-      const sp = Math.sqrt(before.x * before.x + before.y * before.y + before.z * before.z);
-      const nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
-      if (sp > 1 && nl > 0) {
-        const facing = Math.abs(before.x * nx + before.y * ny + before.z * nz) / (sp * nl);
-        const keep = 1 - C.WALL_IMPACT * facing;
-        const lv = this.body.linvel();
-        this.body.setLinvel({ x: lv.x * keep, y: lv.y * keep, z: lv.z * keep }, true);
-        const after = Math.sqrt(lv.x * lv.x + lv.y * lv.y + lv.z * lv.z) * keep;
-        this.impact = sp > after ? sp - after : 0;
       }
     }
-    if (this.onWall && ny < 0.5 && ny > -0.5) {
-      // Un parapet est vertical : il ne peut pas soulever la voiture. À haute vitesse, le frottement du choc
-      // contre sa face (la caisse s'écrase un peu sur ses suspensions au même moment) la poussait vers le haut,
-      // jusqu'à 5 m/s, et la faisait passer par-dessus. On retire cette montée ; la chute, elle, reste libre.
-      const lv = this.body.linvel();
-      const rise = before.y > 0 ? before.y : 0;
-      if (lv.y > rise + C.WALL_LIFT_MAX) this.body.setLinvel({ x: lv.x, y: rise, z: lv.z }, true);
-    }
+
     if (this.onWall) {
-      // Frotter un parapet coûte du temps : la voiture perd un peu de vitesse à chaque pas de contact
+      // Choc : la vitesse perdue pendant ce pas, telle que la physique l'a calculée (pour le son et les étincelles)
       const lv = this.body.linvel();
-      this.body.setLinvel({ x: lv.x * C.WALL_SPEED_KEEP, y: lv.y * C.WALL_SPEED_KEEP, z: lv.z * C.WALL_SPEED_KEEP }, true);
-      // Le choc ne couche pas la voiture : on retire l'essentiel du roulis (rotation autour de l'axe avant-arrière)
-      const q = this.body.rotation();
-      const fx = 2 * (q.x * q.z + q.w * q.y);
-      const fy = 2 * (q.y * q.z - q.w * q.x);
-      const fz = 1 - 2 * (q.x * q.x + q.y * q.y);
-      const w = this.body.angvel();
-      const wf = (w.x * fx + w.y * fy + w.z * fz) * (1 - C.WALL_ROLL_KEEP);
-      this.body.setAngvel({ x: w.x - fx * wf, y: w.y - fy * wf, z: w.z - fz * wf }, true);
+      const sp = Math.sqrt(before.x * before.x + before.y * before.y + before.z * before.z);
+      const after = Math.sqrt(lv.x * lv.x + lv.y * lv.y + lv.z * lv.z);
+      this.impact = sp > after ? sp - after : 0;
     }
     this.rightIfStuck();
     const t = this.body.translation();

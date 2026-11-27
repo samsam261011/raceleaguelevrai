@@ -6,7 +6,7 @@ import type { Route } from "../world/route";
  * Pilote automatique très simple qui suit le chemin normal de la map.
  * Sert aux tests (la map est-elle faisable ?) et au mode développeur. Déterministe.
  */
-export function makeAutopilot(route: Route, lookahead = 14, maxSpeedInTurn = 34): (car: CarState) => number {
+export function makeAutopilot(route: Route, lookahead = 14, maxSpeedInTurn = 30): (car: CarState) => number {
   let idx = 0;
   let first = true;
   const n = route.px.length;
@@ -35,7 +35,8 @@ export function makeAutopilot(route: Route, lookahead = 14, maxSpeedInTurn = 34)
       const t = ((car.x - route.px[idx]!) * sx + (car.y - route.py[idx]!) * sy + (car.z - route.pz[idx]!) * sz) / (L * L);
       if (t > 0) along += Math.min(1, t) * L;
     }
-    const goal = along + lookahead;
+    // Plus vite, on vise plus loin : sinon le pilote corrige trop sec et zigzague (au décollage d'un tremplin, c'est la chute)
+    const goal = along + lookahead + 0.2 * Math.max(0, car.speed - 30);
     let target = idx;
     while (target < n - 1 && route.dist[target]! < goal) target++;
     // Cible dans le repère de la voiture (fonctionne aussi à l'envers dans un looping ou sur un mur)

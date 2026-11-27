@@ -53,17 +53,20 @@ describe("physique déterministe", () => {
     const a = new Attempt(world);
     let before = 0;
     let after = -1;
+    let hit = 0;
     while (a.tick < 120 * 6 && a.status === "running") {
       const sp = Math.hypot(a.car.vx, a.car.vz);
       a.step(IN_THROTTLE);
-      if (a.car.onWall && after < 0) {
+      if (a.car.onWall && hit === 0) {
         before = sp;
-        after = Math.hypot(a.car.vx, a.car.vz);
+        hit = a.tick;
       }
+      // Le choc vient du moteur physique : il dure quelques pas, on mesure la vitesse un quart de seconde après
+      if (hit > 0 && a.tick === hit + 30) after = Math.hypot(a.car.vx, a.car.vz);
     }
     expect(after).toBeGreaterThanOrEqual(0);
     expect(a.status).toBe("running");
-    expect(after).toBeLessThan(before * 0.6);
+    expect(after).toBeLessThan(before * 0.8);
   });
 
   it("les rebords empêchent de tomber en zigzaguant sur la ligne droite", () => {
