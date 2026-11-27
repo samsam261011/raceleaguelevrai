@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+// Au build, ce fichier est intégré au code (voir assetsInlineLimit dans vite.config.ts)
 import url from "./models/voiture.glb?url";
 
 /**
