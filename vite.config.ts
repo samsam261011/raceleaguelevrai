@@ -9,6 +9,8 @@ export default defineConfig({
     target: "es2020",
     // Le moteur physique (WebAssembly inclus) pèse à lui seul environ 1,7 Mo compressé
     chunkSizeWarningLimit: 4500,
+    // Le modèle 3D de la voiture est intégré au code (data URL) : un fichier de moins, et certains hébergeurs ne servent pas les .glb
+    assetsInlineLimit: (file) => (file.endsWith(".glb") ? true : undefined),
     rollupOptions: {
       input: {
         menu: fileURLToPath(new URL("./index.html", import.meta.url)),
