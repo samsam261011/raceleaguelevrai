@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { WHEELS } from "../physics/constants";
+import { cloneWith, loadCarModel, type CarModel } from "./carModel";
 import { col, loft, Mesher, mirrored } from "./geom";
 
 /**
@@ -216,6 +217,20 @@ function shapesFor(color: number): Shapes {
   return s;
 }
 
+/**
+ * Remplace la voiture construite par le code par le modèle 3D, dès qu'il est chargé.
+ * La caisse, les roues et les pivots restent les mêmes objets : l'animation (suspension, rotation, braquage) continue telle quelle.
+ */
+function useModel(car: Omit<CarMesh, "fade" | "lights">, model: CarModel, mat: (m: THREE.MeshStandardMaterial) => THREE.Material, shadows: boolean): void {
+  car.body.clear();
+  car.body.add(cloneWith(model.body, mat, shadows));
+  car.wheels.forEach((w, i) => {
+    // Les deux premières roues sont à l'avant
+    w.geometry = new THREE.BufferGeometry();
+    w.add(cloneWith(i < 2 ? model.frontWheel : model.rearWheel, mat, shadows));
+  });
+}
+
 /** Voiture du joueur. Elle regarde vers +z. */
 export function buildCarMesh(color: number = RANK_COLORS.or!): CarMesh {
   const sh = shapesFor(color);
@@ -230,6 +245,29 @@ export function buildCarMesh(color: number = RANK_COLORS.or!): CarMesh {
     },
     true,
   );
+  const paint = new THREE.Color(color);
+  const headlights = new THREE.MeshBasicMaterial({ color: 0xfff1d6, toneMapped: false });
+  void loadCarModel().then((model) => {
+    if (!model) return;
+    const cache = new Map<THREE.Material, THREE.Material>();
+    useModel(
+      parts,
+      model,
+      (m) => {
+        // Feux arrière : le matériau partagé dont la couleur change au freinage ; phares toujours allumés
+        if (m.name === "Feux") return lights;
+        if (m.name === "Phares") return headlights;
+        let c = cache.get(m);
+        if (!c) {
+          const copy = m.clone();
+          if (m.name === "Peinture") copy.color.copy(paint);
+          cache.set(m, (c = copy));
+        }
+        return c;
+      },
+      true,
+    );
+  });
   return { ...parts, lights, fade: [] };
 }
 
@@ -242,5 +280,14 @@ export function buildGhostMesh(): CarMesh {
   const parts = assemble(sh, mats, false);
   const fade: CarMesh["fade"] = [];
   for (const m of new Set(Object.values(mats))) fade.push({ mat: m, base: m.opacity });
+  void loadCarModel().then((model) => {
+    if (!model) return;
+    // Le modèle n'a pas de couleurs par sommet : une teinte unie bleutée, un peu plus claire sur les vitres
+    const body = new THREE.MeshLambertMaterial({ color: 0x9fe2ff, emissive: 0x1d5a80, transparent: true, opacity: 0.4, depthWrite: false });
+    const dim = new THREE.MeshLambertMaterial({ color: 0x9fe2ff, emissive: 0x1d5a80, transparent: true, opacity: 0.3, depthWrite: false });
+    fade.length = 0;
+    fade.push({ mat: body, base: 0.4 }, { mat: dim, base: 0.3 });
+    useModel(parts, model, (m) => (m.name === "Vitre" || m.name === "Pneu" ? dim : body), false);
+  });
   return { ...parts, lights: null, fade };
 }
